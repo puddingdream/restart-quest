@@ -1,0 +1,56 @@
+{
+  "session": "backend-puddingdream-restart-quest",
+  "repo": "puddingdream/restart-quest",
+  "workItem": "TASK-040-01-backend",
+  "task": "TASK-040",
+  "title": "TASK-040 backend implementation",
+  "role": "backend",
+  "displayName": "AgentFlow Backend",
+  "provider": "mock",
+  "sourceBranch": "agentflow/task-040-01-backend-backend",
+  "source": {
+    "type": "slack-command",
+    "channelId": "C0BFADNB6HW",
+    "commandText": "publish 해줘"
+  },
+  "scope": [
+    "publish command backend contract",
+    "mock provider artifact handoff",
+    "GitHub artifact evidence",
+    "Slack report evidence",
+    "QA and reviewer handoff"
+  ],
+  "contextFiles": [
+    "AGENTS.md",
+    "docs/agents/ROLE_BACKEND.md",
+    "docs/workflow/GITHUB_FLOW.md",
+    "docs/workflow/SLACK_COMMANDS.md",
+    "docs/workflow/ARTIFACT_EVIDENCE.md",
+    "docs/TASK_040_PUBLISH_ORCHESTRATION.md"
+  ],
+  "acceptanceCriteria": [
+    "Related backend or orchestration documentation changed for the task purpose",
+    "Required verification commands run and reported",
+    "Remaining risks and QA points documented",
+    "GitHub artifact created",
+    "Agent dispatch package created",
+    "Slack report created"
+  ],
+  "dispatchTargets": [
+    {
+      "agent": "qa",
+      "purpose": "Verify artifact existence, JSON parseability, and product-direction wording."
+    },
+    {
+      "agent": "reviewer",
+      "purpose": "Review whether mock-provider publish scope is narrow and does not claim unavailable runtime behavior."
+    }
+  ],
+  "qaChecklist": [
+    "Confirm all three files under docs/artifacts/TASK-040-01-backend exist.",
+    "Parse JSON artifacts with ConvertFrom-Json.",
+    "Check Slack report includes original command and mock-provider limitation.",
+    "Confirm no document claims production deploy, PR creation, or external Slack posting was completed."
+  ],
+  "status": "prepared-for-qa-review"
+}

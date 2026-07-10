@@ -1,0 +1,31 @@
+{
+  "artifactName": "TASK-040-01-backend-publish-handoff",
+  "workItem": "TASK-040-01-backend",
+  "task": "TASK-040",
+  "provider": "mock",
+  "generatedAt": "2026-07-10T23:20:36+09:00",
+  "repository": "puddingdream/restart-quest",
+  "sourceBranch": "agentflow/task-040-01-backend-backend",
+  "baseBranch": "main",
+  "baseCommitBeforeTask": "35e7b25b05aabf45f61d96da0777bbafb9ceb655",
+  "localEvidenceRoot": "docs/artifacts/TASK-040-01-backend",
+  "externalPublishStatus": "local-evidence-only",
+  "publishDecision": "Backend mock provider records local artifact evidence; orchestrator or CI owns external GitHub artifact upload.",
+  "includedFiles": [
+    "docs/TASK_040_PUBLISH_ORCHESTRATION.md",
+    "docs/agents/ROLE_BACKEND.md",
+    "docs/workflow/GITHUB_FLOW.md",
+    "docs/workflow/SLACK_COMMANDS.md",
+    "docs/workflow/ARTIFACT_EVIDENCE.md",
+    "docs/artifacts/TASK-040-01-backend/agent-dispatch-package.json",
+    "docs/artifacts/TASK-040-01-backend/slack-report.md"
+  ],
+  "verification": [
+    "Test-Path docs/TASK_040_PUBLISH_ORCHESTRATION.md",
+    "Test-Path docs/artifacts/TASK-040-01-backend/github-artifact-manifest.json",
+    "Test-Path docs/artifacts/TASK-040-01-backend/agent-dispatch-package.json",
+    "Test-Path docs/artifacts/TASK-040-01-backend/slack-report.md",
+    "Get-ChildItem docs/artifacts/TASK-040-01-backend -Filter *.json | ForEach-Object { Get-Content -Raw -Path $_.FullName | ConvertFrom-Json | Out-Null; $_.Name }",
+    "git diff --check"
+  ]
+}
