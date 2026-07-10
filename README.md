@@ -56,3 +56,8 @@ Re:Start Quest는 기능 많은 취업 종합 앱이 아니라, 실패 후에도
 - [인수인계 문서](docs/RESTART_QUEST_HANDOFF.md)
 - [제품 방향성](docs/PRODUCT_DIRECTION.md)
 - [코드 품질 가드레일](docs/CODE_QUALITY_GUARDRAILS.md)
+- [백엔드 역할 문서](docs/agents/ROLE_BACKEND.md)
+- [QA 역할 문서](docs/agents/ROLE_QA.md)
+- [GitHub 작업 흐름](docs/workflow/GITHUB_FLOW.md)
+- [머지 정책](docs/workflow/MERGE_POLICY.md)
+- [TASK-033 R01 증적](docs/workflow/ARTIFACT_EVIDENCE.md)

@@ -51,7 +51,6 @@ MVP에서 가장 중요한 기능은 아래 3개입니다.
 - 무엇을 써야 할지 몰랐다
 - 자료가 없었다
 - 자신감이 없었다
-- 공고가 마음에 들지 않았다
 - 오늘 컨디션이 낮았다
 
 재설계 예시:
@@ -84,8 +83,7 @@ LLM 응답은 자연어 본문이 아니라 JSON 구조로 받습니다.
       "category": "JOB_SEARCH",
       "difficulty": "EASY",
       "estimatedMinutes": 15,
-      "completionCriteria": "공고 3개를 저장하면 완료",
-      "fallbackQuest": "공고 사이트에 접속해서 직무 키워드 1개만 검색하기"
+      "completionCriteria": "공고 3개를 저장하면 완료"
     }
   ]
 }

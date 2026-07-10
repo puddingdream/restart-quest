@@ -1,5 +1,7 @@
 # Re:Start Quest 인수인계 문서
 
+> 현재 문서는 아이디어와 배경을 보존하기 위한 인수인계 자료다. MVP 구현 계약은 `docs/MVP_DESIGN.md`와 `docs/BACKEND_API_CONTRACT.md`를 우선하며, 이 문서의 확장 기능 목록은 별도 work item이 생기기 전까지 구현 범위로 보지 않는다.
+
 ## 1. 이 문서의 목적
 
 이 문서는 오케스트레이터 세션에서 개인 포트폴리오 프로젝트를 시작하기 위한 인수인계 자료다.
@@ -305,6 +307,8 @@ AI:
 - status
 - dueDate
 - generatedByAi
+- completionCriteria
+- redesignedFromQuestId
 - createdAt
 - completedAt
 
@@ -342,7 +346,7 @@ Quest status:
 - question
 - answer
 - feedback
-- score
+- feedbackSummary
 - createdAt
 
 ### JobPosting
@@ -394,9 +398,11 @@ Quest status:
 
 - GET /api/quests/today
 - POST /api/quests/generate
-- PATCH /api/quests/{id}/complete
-- PATCH /api/quests/{id}/fail
-- POST /api/quests/{id}/regenerate
+- PATCH /api/quests/{questId}/complete
+- PATCH /api/quests/{questId}/fail
+- POST /api/quests/{questId}/redesign
+
+아래 API는 MVP 이후 확장 후보이며, 현재 백엔드 계약의 필수 구현 범위가 아니다.
 
 이력서:
 

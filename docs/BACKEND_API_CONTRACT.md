@@ -16,7 +16,7 @@
 
 ### 2.1 MVP 포함
 
-- 이메일 기반 회원 식별과 `GET /api/users/me` 응답 계약
+- 이메일/비밀번호 회원가입, 로그인, `GET /api/users/me` 응답 계약
 - 온보딩 프로필 저장과 조회
 - 오늘의 퀘스트 3개 생성, 조회, 완료 처리
 - 실패 이유 저장
@@ -89,6 +89,59 @@ NORMAL
 
 공통 응답 시간은 ISO-8601 문자열을 사용한다. 인증이 붙은 뒤에는 모든 사용자 리소스에 서버의 현재 사용자 ID를 적용하고, 요청 body의 `userId`는 받지 않는다.
 
+### 4.0 인증
+
+```http
+POST /api/auth/signup
+```
+
+```json
+{
+  "email": "user@example.com",
+  "password": "minimum-8-characters",
+  "name": "사용자"
+}
+```
+
+```json
+{
+  "accessToken": "issued-token",
+  "tokenType": "Bearer",
+  "user": {
+    "id": "user-1",
+    "email": "user@example.com",
+    "name": "사용자",
+    "onboardingCompleted": false
+  }
+}
+```
+
+```http
+POST /api/auth/login
+```
+
+```json
+{
+  "email": "user@example.com",
+  "password": "minimum-8-characters"
+}
+```
+
+```json
+{
+  "accessToken": "issued-token",
+  "tokenType": "Bearer",
+  "user": {
+    "id": "user-1",
+    "email": "user@example.com",
+    "name": "사용자",
+    "onboardingCompleted": true
+  }
+}
+```
+
+토큰 저장 방식과 refresh token은 MVP 구현 시 보안 요구사항에 맞춰 별도 결정한다. API 문서에는 실제 secret이나 발급 키를 남기지 않는다.
+
 ### 4.1 내 정보
 
 ```http
@@ -131,6 +184,9 @@ POST /api/onboarding
   "hasResume": true,
   "interviewExperience": "LOW",
   "energyLevel": "LOW",
+  "region": "서울",
+  "desiredWorkType": "FULL_TIME",
+  "interests": ["Java", "Spring"],
   "updatedAt": "2026-07-10T00:00:00Z"
 }
 ```

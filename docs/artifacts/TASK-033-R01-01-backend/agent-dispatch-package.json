@@ -1,0 +1,33 @@
+{
+  "session": "backend-puddingdream-restart-quest",
+  "repo": "puddingdream/restart-quest",
+  "workItem": "TASK-033-R01-01-backend",
+  "task": "TASK-033",
+  "title": "TASK-033 R01 backend remediation",
+  "role": "backend",
+  "displayName": "AgentFlow Backend",
+  "provider": "mock",
+  "remediationKey": "bd064a637d2e",
+  "sourceBranch": "agentflow/task-033-02-backend-backend",
+  "scope": [
+    "required context files",
+    "API contract consistency",
+    "local artifact evidence",
+    "QA recheck instructions"
+  ],
+  "contextFiles": [
+    "AGENTS.md",
+    "docs/agents/ROLE_BACKEND.md",
+    "docs/agents/ROLE_QA.md",
+    "docs/workflow/GITHUB_FLOW.md",
+    "docs/workflow/MERGE_POLICY.md",
+    "docs/workflow/ARTIFACT_EVIDENCE.md"
+  ],
+  "acceptanceCriteria": [
+    "Resolve missing QA role context",
+    "Resolve missing merge policy context",
+    "Record local evidence for artifact handoff",
+    "Align MVP API summary with backend API contract"
+  ],
+  "status": "prepared-for-qa-recheck"
+}

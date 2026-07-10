@@ -1,0 +1,31 @@
+{
+  "artifactName": "TASK-033-R01-01-backend-design-remediation",
+  "workItem": "TASK-033-R01-01-backend",
+  "task": "TASK-033",
+  "remediationKey": "bd064a637d2e",
+  "provider": "mock",
+  "sourceBranch": "agentflow/task-033-02-backend-backend",
+  "generatedAt": "2026-07-10T00:00:00+09:00",
+  "localEvidenceRoot": "docs/artifacts/TASK-033-R01-01-backend",
+  "externalPublishStatus": "local-evidence-only",
+  "publishDecision": "Backend mock provider records local artifact evidence; orchestrator or CI owns external upload.",
+  "includedFiles": [
+    "docs/BACKEND_API_CONTRACT.md",
+    "docs/MVP_DESIGN.md",
+    "docs/PRODUCT_DIRECTION.md",
+    "docs/RESTART_QUEST_HANDOFF.md",
+    "docs/CODE_QUALITY_GUARDRAILS.md",
+    "docs/agents/ROLE_BACKEND.md",
+    "docs/agents/ROLE_QA.md",
+    "docs/workflow/GITHUB_FLOW.md",
+    "docs/workflow/MERGE_POLICY.md",
+    "docs/workflow/ARTIFACT_EVIDENCE.md",
+    "docs/artifacts/TASK-033-R01-01-backend/agent-dispatch-package.json",
+    "docs/artifacts/TASK-033-R01-01-backend/slack-report.md"
+  ],
+  "verification": [
+    "Test-Path docs/agents/ROLE_QA.md",
+    "Test-Path docs/workflow/MERGE_POLICY.md",
+    "Test-Path docs/artifacts/TASK-033-R01-01-backend/github-artifact-manifest.json"
+  ]
+}
