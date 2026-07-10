@@ -19,6 +19,7 @@ QA 시작 전 아래 파일이 존재하는지 확인한다.
 - `AGENTS.md`
 - `docs/agents/ROLE_BACKEND.md`
 - `docs/agents/ROLE_QA.md`
+- `docs/agents/ROLE_REVIEWER.md`
 - `docs/workflow/GITHUB_FLOW.md`
 - `docs/workflow/MERGE_POLICY.md`
 - `docs/workflow/ARTIFACT_EVIDENCE.md`
@@ -57,6 +58,7 @@ mock provider 작업에서는 외부 GitHub 업로드나 Slack 전송 여부를 
 
 ```powershell
 Test-Path docs/agents/ROLE_QA.md
+Test-Path docs/agents/ROLE_REVIEWER.md
 Test-Path docs/workflow/MERGE_POLICY.md
 Test-Path docs/artifacts/TASK-033-R01-01-backend/github-artifact-manifest.json
 Test-Path docs/artifacts/TASK-033-R01-01-backend/agent-dispatch-package.json

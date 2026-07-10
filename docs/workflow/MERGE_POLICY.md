@@ -18,6 +18,7 @@
 - `AGENTS.md`
 - `docs/agents/ROLE_BACKEND.md`
 - `docs/agents/ROLE_QA.md`
+- `docs/agents/ROLE_REVIEWER.md`
 - `docs/workflow/GITHUB_FLOW.md`
 - `docs/workflow/MERGE_POLICY.md`
 - `docs/workflow/ARTIFACT_EVIDENCE.md`
