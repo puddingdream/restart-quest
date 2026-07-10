@@ -1,0 +1,32 @@
+{
+  "artifactName": "TASK-038-01-backend-diagnostic-handoff",
+  "workItem": "TASK-038-01-backend",
+  "task": "TASK-038",
+  "provider": "mock",
+  "generatedAt": "2026-07-10T20:15:00+09:00",
+  "localEvidenceRoot": "docs/artifacts/TASK-038-01-backend",
+  "externalPublishStatus": "local-evidence-only",
+  "publishDecision": "Backend mock provider records local artifact evidence; orchestrator or CI owns external GitHub artifact upload.",
+  "includedFiles": [
+    "docs/TASK_038_BACKEND_DIAGNOSTIC.md",
+    "docs/context/PROJECT_CONTEXT.md",
+    "docs/agents/ROLE_BACKEND.md",
+    "docs/agents/ROLE_QA.md",
+    "docs/agents/ROLE_REVIEWER.md",
+    "docs/workflow/TASK_LIFECYCLE.md",
+    "docs/workflow/GITHUB_FLOW.md",
+    "docs/workflow/SLACK_COMMANDS.md",
+    "docs/workflow/MERGE_POLICY.md",
+    "docs/workflow/ARTIFACT_EVIDENCE.md",
+    "docs/artifacts/TASK-038-01-backend/agent-dispatch-package.json",
+    "docs/artifacts/TASK-038-01-backend/slack-report.md"
+  ],
+  "verification": [
+    "Test-Path docs/TASK_038_BACKEND_DIAGNOSTIC.md",
+    "Test-Path docs/artifacts/TASK-038-01-backend/github-artifact-manifest.json",
+    "Test-Path docs/artifacts/TASK-038-01-backend/agent-dispatch-package.json",
+    "Test-Path docs/artifacts/TASK-038-01-backend/slack-report.md",
+    "ConvertFrom-Json docs/artifacts/TASK-038-01-backend/*.json"
+  ]
+}
+

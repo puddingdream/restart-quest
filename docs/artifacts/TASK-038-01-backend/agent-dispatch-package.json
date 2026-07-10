@@ -1,0 +1,37 @@
+{
+  "session": "backend-puddingdream-restart-quest",
+  "repo": "puddingdream/restart-quest",
+  "workItem": "TASK-038-01-backend",
+  "task": "TASK-038",
+  "title": "TASK-038 backend implementation",
+  "role": "backend",
+  "displayName": "AgentFlow Backend",
+  "provider": "mock",
+  "sourceBranch": "agentflow/task-038-01-backend-backend",
+  "linkedBranch": "agentflow/task-038-뭐가문제야",
+  "scope": [
+    "backend orchestration diagnostic",
+    "missing context remediation",
+    "local artifact handoff",
+    "QA and reviewer unblock"
+  ],
+  "contextFiles": [
+    "AGENTS.md",
+    "docs/context/PROJECT_CONTEXT.md",
+    "docs/agents/ROLE_BACKEND.md",
+    "docs/agents/ROLE_QA.md",
+    "docs/agents/ROLE_REVIEWER.md",
+    "docs/workflow/TASK_LIFECYCLE.md",
+    "docs/workflow/GITHUB_FLOW.md",
+    "docs/workflow/SLACK_COMMANDS.md",
+    "docs/workflow/MERGE_POLICY.md",
+    "docs/workflow/ARTIFACT_EVIDENCE.md"
+  ],
+  "acceptanceCriteria": [
+    "GitHub artifact created",
+    "agent dispatch package created",
+    "Slack report created",
+    "backend limitation and QA points documented"
+  ],
+  "status": "prepared-for-qa-review"
+}
