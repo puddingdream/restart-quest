@@ -162,6 +162,8 @@ type QuestViewModel = {
 
 ## 6. API 초안
 
+상세 요청/응답, 상태 전이, 에러 코드, AI 오케스트레이션 계약은 [백엔드 API 계약 초안](BACKEND_API_CONTRACT.md)을 기준으로 구현한다.
+
 ### 6.1 인증
 
 - `POST /api/auth/signup`
