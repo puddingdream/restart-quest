@@ -1,0 +1,113 @@
+{
+  "taskId": "TASK-046",
+  "title": "Re:Start Quest MVP planning synthesis",
+  "status": "ready_for_next_tasks",
+  "sourceReports": [
+    "C:\\java\\assignment\\spring\\AgentFlow\\.agentflow\\state\\provider-runs\\task-045-01-design\\report.json",
+    "C:\\java\\assignment\\spring\\AgentFlow\\.agentflow\\state\\provider-runs\\task-045-02-frontend\\report.json",
+    "C:\\java\\assignment\\spring\\AgentFlow\\.agentflow\\state\\provider-runs\\task-045-03-backend-2\\report.json",
+    "C:\\java\\assignment\\spring\\AgentFlow\\.agentflow\\state\\provider-runs\\task-045-04-qa\\report.json"
+  ],
+  "reviewerSource": "No TASK-045 reviewer report was present; reviewer constraints are derived from AGENTS.md and docs/CODE_QUALITY_GUARDRAILS.md.",
+  "finalMvpDirection": "Build Re:Start Quest as a job-search behavior re-entry engine, centered on onboarding, daily quest generation, failure reason capture, easier quest redesign, and dashboard reflection.",
+  "mustNotBuildInMvp": [
+    "real job-site crawling",
+    "mental-health counseling or treatment flows",
+    "willpower, sincerity, risk, or surveillance scoring",
+    "policy eligibility final decisions",
+    "admin or counselor monitoring screens",
+    "feature-marketing landing page as first screen"
+  ],
+  "domainDecisions": {
+    "coreModels": [
+      "OnboardingProfile",
+      "Quest",
+      "QuestAttempt",
+      "RedesignHistory",
+      "DashboardSummary"
+    ],
+    "questStatuses": [
+      "TODO",
+      "DONE",
+      "FAILED",
+      "REDESIGNED"
+    ],
+    "failureReasons": [
+      "TIME_SHORTAGE",
+      "TOO_BURDENSOME",
+      "DONT_KNOW_WHAT_TO_WRITE",
+      "LACK_OF_MATERIAL",
+      "LOW_CONFIDENCE",
+      "LOW_CONDITION",
+      "JOB_NOT_APPEALING"
+    ],
+    "stateRules": [
+      "A TODO quest can become DONE.",
+      "A TODO quest can become FAILED only with a failureReason.",
+      "A FAILED quest can become REDESIGNED only after a redesign result is saved.",
+      "A DONE quest cannot be failed or redesigned.",
+      "A redesigned quest must be easier or shorter than the original quest."
+    ]
+  },
+  "apiDecisions": [
+    "POST /api/onboarding",
+    "GET /api/onboarding/me",
+    "POST /api/quests/generate",
+    "GET /api/quests/today",
+    "PATCH /api/quests/{id}/complete",
+    "PATCH /api/quests/{id}/fail",
+    "POST /api/quests/{id}/redesign",
+    "GET /api/dashboard"
+  ],
+  "screenFlow": [
+    "OnboardingPage",
+    "TodayQuestPage",
+    "FailureReasonSelect",
+    "RedesignedQuestList",
+    "DashboardPage"
+  ],
+  "nextTaskCandidates": [
+    {
+      "id": "TASK-047",
+      "owner": "design+backend+frontend",
+      "title": "MVP domain/API/AI contract",
+      "deliverable": "enum, DTO, endpoint, AI JSON schema, and error-code contract"
+    },
+    {
+      "id": "TASK-048",
+      "owner": "backend",
+      "title": "Backend quest core use cases",
+      "deliverable": "generate, fail, redesign, and dashboard use cases with mock AI client"
+    },
+    {
+      "id": "TASK-049",
+      "owner": "frontend",
+      "title": "Frontend core flow prototype",
+      "deliverable": "onboarding, today quests, failure reason, redesign result, and dashboard screens"
+    },
+    {
+      "id": "TASK-050",
+      "owner": "frontend+backend",
+      "title": "MVP API integration",
+      "deliverable": "browser-verifiable core loop using backend APIs"
+    },
+    {
+      "id": "TASK-051",
+      "owner": "backend",
+      "title": "LLM provider adapter and JSON validation",
+      "deliverable": "QuestAiClient provider adapter with invalid response, timeout, and quota handling"
+    },
+    {
+      "id": "TASK-052",
+      "owner": "qa",
+      "title": "QA scenarios and copy review",
+      "deliverable": "smoke/e2e candidates and banned-copy checklist"
+    },
+    {
+      "id": "TASK-053",
+      "owner": "backend+frontend",
+      "title": "Minimal auth and user data isolation",
+      "deliverable": "login/signup, current user lookup, and per-user quest isolation"
+    }
+  ]
+}
