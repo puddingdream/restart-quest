@@ -1,0 +1,39 @@
+{
+  "workItem": "TASK-048-03-backend-2",
+  "task": "TASK-048",
+  "repo": "puddingdream/restart-quest",
+  "role": "backend-2",
+  "provider": "mock",
+  "linkedDesignPr": "https://github.com/puddingdream/restart-quest/pull/16",
+  "artifactType": "backend-implementation-handoff",
+  "externalPublishStatus": {
+    "github": "not-published-by-mock-provider",
+    "slack": "not-posted-by-mock-provider"
+  },
+  "sourceDocuments": [
+    "AGENTS.md",
+    "README.md",
+    "docs/RESTART_QUEST_HANDOFF.md",
+    "docs/PRODUCT_DIRECTION.md",
+    "docs/CODE_QUALITY_GUARDRAILS.md"
+  ],
+  "generatedArtifacts": [
+    "docs/artifacts/TASK-048-03-backend-2/github-artifact-manifest.json",
+    "docs/artifacts/TASK-048-03-backend-2/agent-dispatch-package.json",
+    "docs/artifacts/TASK-048-03-backend-2/slack-report.md"
+  ],
+  "backendScope": [
+    "OnboardingProfile API",
+    "DailyQuestPlan generation API",
+    "Quest complete, skip, fail, redesign APIs",
+    "Dashboard today and activity read models",
+    "Mock QuestAiClient with DTO validation before real provider integration"
+  ],
+  "implementationStatus": "prepared-handoff-only",
+  "implementationNote": "This worktree has no executable Spring Boot module or build wrapper. Per backend role guidance, this artifact records the backend implementation scope and QA handoff instead of claiming unverified runtime behavior.",
+  "verification": [
+    "JSON artifact parse check required",
+    "git diff --check required",
+    "Spring build/test skipped until a runnable backend module exists"
+  ]
+}
