@@ -1,0 +1,68 @@
+{
+  "session": "backend-2-puddingdream-restart-quest",
+  "repo": "puddingdream/restart-quest",
+  "workItem": "TASK-048-03-backend-2",
+  "task": "TASK-048",
+  "title": "TASK-048 backend implementation",
+  "role": "backend-2",
+  "displayName": "AgentFlow Backend 2",
+  "provider": "mock",
+  "sourceBranch": "agentflow/task-048-03-backend-2-backend-2",
+  "linkedDesignBranch": "agentflow/task-048-01-design-design",
+  "linkedDesignPr": "https://github.com/puddingdream/restart-quest/pull/16",
+  "scope": [
+    "Read canonical handoff and product direction documents",
+    "Keep backend work aligned to the canonical docs/PRODUCT_DIRECTION.md design",
+    "Prepare backend API and orchestration handoff evidence for mock provider publishing",
+    "Avoid claiming runtime server behavior while no executable backend module exists"
+  ],
+  "backendImplementationQueue": [
+    {
+      "order": 1,
+      "item": "Create runnable Spring Boot backend scaffold",
+      "details": "Add build wrapper, application entrypoint, test setup, and package layout domain/application/infrastructure/presentation before endpoint work."
+    },
+    {
+      "order": 2,
+      "item": "Implement onboarding profile use case",
+      "details": "PUT/GET /api/onboarding/profile with validation for region, desired job, work type, gap months, resume flag, interview experience, interests, and default energy level."
+    },
+    {
+      "order": 3,
+      "item": "Implement today quest plan generation",
+      "details": "POST/GET /api/quest-plans/today using a mock QuestAiClient that returns exactly three validated quests."
+    },
+    {
+      "order": 4,
+      "item": "Implement quest state transitions",
+      "details": "Complete, skip, fail, and redesign endpoints with explicit guards: completed quests cannot fail, redesign requires a stored failure reason, and child quests keep parentQuestId."
+    },
+    {
+      "order": 5,
+      "item": "Implement dashboard read model",
+      "details": "GET /api/dashboard/today and /api/dashboard/activity based on quest counts, next quest, and recent redesigns."
+    }
+  ],
+  "acceptanceCriteria": [
+    "Related backend or orchestration files changed for the task purpose",
+    "Required verification commands run and reported",
+    "Remaining risks and QA points documented",
+    "GitHub artifact created",
+    "Agent dispatch package created",
+    "Slack report created"
+  ],
+  "qaChecklist": [
+    "Confirm artifacts exist under docs/artifacts/TASK-048-03-backend-2.",
+    "Parse github-artifact-manifest.json and agent-dispatch-package.json with ConvertFrom-Json.",
+    "Confirm the report does not claim Spring Boot runtime behavior or tests were completed.",
+    "Confirm the next backend task starts with a runnable scaffold before API implementation.",
+    "When code exists, verify the core flow: onboarding -> today quest generation -> fail reason -> redesign -> dashboard update."
+  ],
+  "reviewerChecklist": [
+    "Check that the backend scope stays focused on the MVP redesign loop.",
+    "Block any implementation that parses LLM natural language instead of validating JSON DTOs.",
+    "Block wording that scores user willpower, risk, mental health, or sincerity.",
+    "Check controller/application/domain/infrastructure responsibilities once code is added."
+  ],
+  "status": "prepared-for-qa-review"
+}
