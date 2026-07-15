@@ -1,5 +1,5 @@
-import type { OnboardingProfile } from "../../onboarding/types";
-import type { DailyQuest, FailureReason, QuestDifficulty } from "../types";
+import type { OnboardingProfile } from "../../onboarding/types.js";
+import type { DailyQuest, FailureReason, QuestDifficulty } from "../types.js";
 
 let sequence = 0;
 

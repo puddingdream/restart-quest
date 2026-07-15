@@ -1,6 +1,6 @@
-import { button, h } from "../../../shared/dom";
-import { categoryLabels, failureReasonLabels, type DailyQuest, type RedesignRecord } from "../../quests/types";
-import { createDashboardSummary } from "../services/dashboardSummary";
+import { button, h } from "../../../shared/dom.js";
+import { categoryLabels, failureReasonLabels, type DailyQuest, type RedesignRecord } from "../../quests/types.js";
+import { createDashboardSummary } from "../services/dashboardSummary.js";
 
 type DashboardPageProps = {
   quests: DailyQuest[];

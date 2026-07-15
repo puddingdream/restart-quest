@@ -1,4 +1,4 @@
-import type { DailyQuest, RedesignRecord } from "../../quests/types";
+import type { DailyQuest, RedesignRecord } from "../../quests/types.js";
 
 export interface DashboardSummary {
   generatedTotal: number;

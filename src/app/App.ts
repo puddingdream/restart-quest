@@ -1,10 +1,10 @@
-import { clear, h } from "../shared/dom";
-import { renderDashboardPage } from "../features/dashboard/pages/DashboardPage";
-import { renderOnboardingPage } from "../features/onboarding/pages/OnboardingPage";
-import type { OnboardingProfile } from "../features/onboarding/types";
-import { renderTodayQuestPage } from "../features/quests/pages/TodayQuestPage";
-import { generateDailyQuests, redesignQuest } from "../features/quests/services/mockQuestService";
-import type { DailyQuest, FailureReason, RedesignRecord } from "../features/quests/types";
+import { clear, h } from "../shared/dom.js";
+import { renderDashboardPage } from "../features/dashboard/pages/DashboardPage.js";
+import { renderOnboardingPage } from "../features/onboarding/pages/OnboardingPage.js";
+import type { OnboardingProfile } from "../features/onboarding/types.js";
+import { renderTodayQuestPage } from "../features/quests/pages/TodayQuestPage.js";
+import { generateDailyQuests, redesignQuest } from "../features/quests/services/mockQuestService.js";
+import type { DailyQuest, FailureReason, RedesignRecord } from "../features/quests/types.js";
 
 type Screen = "onboarding" | "quests" | "dashboard";
 

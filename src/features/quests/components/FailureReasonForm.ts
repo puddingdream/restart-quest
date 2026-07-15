@@ -1,5 +1,5 @@
-import { h } from "../../../shared/dom";
-import { failureReasonLabels, type FailureReason } from "../types";
+import { h } from "../../../shared/dom.js";
+import { failureReasonLabels, type FailureReason } from "../types.js";
 
 type FailureReasonFormProps = {
   onSubmit: (reason: FailureReason, note: string) => void;

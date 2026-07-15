@@ -1,4 +1,4 @@
-import { App } from "./app/App";
+import { App } from "./app/App.js";
 
 const root = document.querySelector<HTMLDivElement>("#app");
 

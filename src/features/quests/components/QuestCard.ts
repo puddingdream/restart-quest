@@ -1,10 +1,10 @@
-import { button, h } from "../../../shared/dom";
+import { button, h } from "../../../shared/dom.js";
 import {
   categoryLabels,
   difficultyLabels,
   statusLabels,
   type DailyQuest,
-} from "../types";
+} from "../types.js";
 
 type QuestCardProps = {
   quest: DailyQuest;

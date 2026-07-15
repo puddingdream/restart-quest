@@ -1,6 +1,6 @@
-import { h } from "../../../shared/dom";
-import { energyLevelLabels, type EnergyLevel, type OnboardingProfile } from "../types";
-import { readOnboardingProfile } from "../services/onboardingValidation";
+import { h } from "../../../shared/dom.js";
+import { energyLevelLabels, type EnergyLevel, type OnboardingProfile } from "../types.js";
+import { readOnboardingProfile } from "../services/onboardingValidation.js";
 
 type OnboardingPageProps = {
   onSubmit: (profile: OnboardingProfile) => void;

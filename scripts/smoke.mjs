@@ -61,6 +61,104 @@ assert.equal(summary.doneCount, 1);
 assert.equal(summary.redesignedCount, 1);
 assert.ok(summary.nextAction);
 
+const rootElement = installDomHarness();
+const appEntryUrl = pathToFileURL(path.join(root, "dist/assets/main.js")).href;
+await import(appEntryUrl);
+
+assert.equal(rootElement.childNodes.length, 1);
+assert.match(rootElement.textContent, /Re:Start Quest/);
+assert.match(rootElement.textContent, /오늘 다시 움직일 만큼만 작게 나눕니다/);
+
 console.log(
-  "Smoke passed: quest generation, redesign, and dashboard summary are coherent.",
+  "Smoke passed: quest generation, redesign, dashboard summary, and built app entry are coherent.",
 );
+
+function installDomHarness() {
+  class TestNode {
+    childNodes = [];
+    parentNode = null;
+    #textContent;
+
+    append(...children) {
+      if (this.#textContent !== undefined) {
+        this.childNodes.push(new TestTextNode(this.#textContent));
+        this.#textContent = undefined;
+      }
+
+      for (const child of children) {
+        const node = child instanceof TestNode ? child : new TestTextNode(String(child));
+        node.parentNode = this;
+        this.childNodes.push(node);
+      }
+    }
+
+    replaceChildren(...children) {
+      this.childNodes = [];
+      this.#textContent = undefined;
+      this.append(...children);
+    }
+
+    get textContent() {
+      if (this.#textContent !== undefined) {
+        return this.#textContent;
+      }
+      return this.childNodes.map((child) => child.textContent).join("");
+    }
+
+    set textContent(value) {
+      this.childNodes = [];
+      this.#textContent = String(value);
+    }
+  }
+
+  class TestTextNode extends TestNode {
+    constructor(text) {
+      super();
+      this.textContent = text;
+    }
+  }
+
+  class TestElement extends TestNode {
+    attributes = new Map();
+    className = "";
+
+    constructor(tagName) {
+      super();
+      this.tagName = tagName.toUpperCase();
+    }
+
+    setAttribute(name, value) {
+      this.attributes.set(name, String(value));
+      this[name] = String(value);
+    }
+
+    addEventListener() {}
+  }
+
+  class TestDocument {
+    #root;
+
+    constructor(root) {
+      this.#root = root;
+    }
+
+    createElement(tagName) {
+      return new TestElement(tagName);
+    }
+
+    createTextNode(text) {
+      return new TestTextNode(text);
+    }
+
+    querySelector(selector) {
+      return selector === "#app" ? this.#root : null;
+    }
+  }
+
+  const rootNode = new TestElement("div");
+  rootNode.setAttribute("id", "app");
+  globalThis.Node = TestNode;
+  globalThis.document = new TestDocument(rootNode);
+
+  return rootNode;
+}

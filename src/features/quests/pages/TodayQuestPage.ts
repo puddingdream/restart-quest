@@ -1,8 +1,8 @@
-import { button, h } from "../../../shared/dom";
-import type { OnboardingProfile } from "../../onboarding/types";
-import type { DailyQuest, FailureReason } from "../types";
-import { renderFailureReasonForm } from "../components/FailureReasonForm";
-import { renderQuestCard } from "../components/QuestCard";
+import { button, h } from "../../../shared/dom.js";
+import type { OnboardingProfile } from "../../onboarding/types.js";
+import type { DailyQuest, FailureReason } from "../types.js";
+import { renderFailureReasonForm } from "../components/FailureReasonForm.js";
+import { renderQuestCard } from "../components/QuestCard.js";
 
 type TodayQuestPageProps = {
   profile: OnboardingProfile;

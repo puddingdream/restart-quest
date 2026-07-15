@@ -1,4 +1,4 @@
-import type { EnergyLevel, OnboardingProfile } from "../types";
+import type { EnergyLevel, OnboardingProfile } from "../types.js";
 
 const energyLevels: EnergyLevel[] = ["LOW", "MEDIUM", "HIGH"];
 
