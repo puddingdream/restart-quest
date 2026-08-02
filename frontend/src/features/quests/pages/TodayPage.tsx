@@ -1,11 +1,15 @@
 import { AppShell } from '../../../app/components/AppShell'
 import { useAuth } from '../../auth/AuthContext'
 import { TodayQuestContent } from '../components/TodayQuestContent'
+import { useQuestOutcomes } from '../hooks/useQuestOutcomes'
 import { useTodayQuests } from '../hooks/useTodayQuests'
 
 export function TodayPage() {
   const { user } = useAuth()
   const todayQuests = useTodayQuests()
+  const questOutcomes = useQuestOutcomes({
+    onJourneyUpdated: todayQuests.replaceJourney,
+  })
 
   return (
     <AppShell>
@@ -25,9 +29,16 @@ export function TodayPage() {
           error={todayQuests.error}
           isLoading={todayQuests.isLoading}
           isGenerating={todayQuests.isGenerating}
+          outcomeAnnouncement={questOutcomes.announcement}
           onEnergyChange={todayQuests.selectEnergy}
           onGenerate={() => void todayQuests.generate()}
           onRetry={todayQuests.retry}
+          isQuestPending={questOutcomes.isPending}
+          getOutcomeError={questOutcomes.getError}
+          onComplete={questOutcomes.complete}
+          onRedesign={questOutcomes.redesign}
+          onRefresh={() => void todayQuests.refresh()}
+          onClearOutcomeError={questOutcomes.clearError}
         />
       </main>
     </AppShell>

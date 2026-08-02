@@ -4,5 +4,6 @@
 @import './styles/shell.css';
 @import './styles/onboarding.css';
 @import './styles/quests.css';
+@import './styles/quest-outcomes.css';
 @import './styles/routes.css';
 @import './styles/responsive.css';

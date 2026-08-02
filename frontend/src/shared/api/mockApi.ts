@@ -12,17 +12,17 @@ import {
   type Quest,
   type QuestJourney,
 } from '../../features/quests/types'
+import {
+  completeMockQuest,
+  redesignMockQuest,
+  throwMockQuestAiError,
+  type MockQuestAiErrorCode,
+} from '../../features/quests/api/mockQuestOutcomes'
 
 const MOCK_USER_KEY = 'restart-quest.mock-user'
 const MOCK_PROFILE_KEY = 'restart-quest.mock-profile'
 const MOCK_DAILY_QUEST_KEY = 'restart-quest.mock-daily-quest'
 const MOCK_NEXT_QUEST_ERROR_KEY = 'restart-quest.mock-next-quest-error'
-
-type MockQuestAiErrorCode =
-  | 'AI_QUOTA_EXCEEDED'
-  | 'AI_INVALID_RESPONSE'
-  | 'AI_PROVIDER_UNAVAILABLE'
-  | 'AI_PROVIDER_TIMEOUT'
 
 interface StoredDailyQuest {
   userId: string
@@ -223,18 +223,48 @@ function generateTodayQuests(
   )
   if (nextError) {
     window.sessionStorage.removeItem(MOCK_NEXT_QUEST_ERROR_KEY)
-    const statusByCode: Record<MockQuestAiErrorCode, number> = {
-      AI_QUOTA_EXCEEDED: 429,
-      AI_INVALID_RESPONSE: 502,
-      AI_PROVIDER_UNAVAILABLE: 503,
-      AI_PROVIDER_TIMEOUT: 504,
-    }
-    throw new ApiError(statusByCode[nextError], nextError, '퀘스트 생성 요청을 처리하지 못했습니다.')
+    throwMockQuestAiError(nextError)
   }
 
   const plan = createDailyQuests(energyLevel as EnergyLevel)
   storeSessionValue(MOCK_DAILY_QUEST_KEY, { userId: user.id, plan })
   return plan
+}
+
+function requireStoredDailyQuest(
+  accessToken: string | null,
+): { user: AuthUser; stored: StoredDailyQuest } {
+  const user = requireUser(accessToken)
+  const stored = readSessionValue<StoredDailyQuest>(MOCK_DAILY_QUEST_KEY)
+  if (!stored || stored.userId !== user.id || stored.plan.date !== getSeoulDate()) {
+    throw new ApiError(404, 'QUEST_NOT_FOUND', '오늘의 퀘스트를 찾을 수 없습니다.')
+  }
+  return { user, stored }
+}
+
+function completeQuest(
+  questId: string,
+  accessToken: string | null,
+): QuestJourney {
+  const { user, stored } = requireStoredDailyQuest(accessToken)
+  const result = completeMockQuest(stored.plan, questId)
+  storeSessionValue(MOCK_DAILY_QUEST_KEY, { userId: user.id, plan: result.plan })
+  return result.journey
+}
+
+function redesignQuest(
+  questId: string,
+  body: unknown,
+  accessToken: string | null,
+) {
+  const { user, stored } = requireStoredDailyQuest(accessToken)
+  const nextError = readSessionValue<MockQuestAiErrorCode>(
+    MOCK_NEXT_QUEST_ERROR_KEY,
+  )
+  if (nextError) window.sessionStorage.removeItem(MOCK_NEXT_QUEST_ERROR_KEY)
+  const result = redesignMockQuest(stored.plan, questId, body, nextError)
+  storeSessionValue(MOCK_DAILY_QUEST_KEY, { userId: user.id, plan: result.plan })
+  return result.response
 }
 
 export async function mockRequest<T>(
@@ -263,6 +293,21 @@ export async function mockRequest<T>(
   }
   if (route === 'POST /quests/today/generate') {
     return generateTodayQuests(options.body, options.accessToken) as T
+  }
+  const completionMatch = path.match(/^\/quests\/([^/]+)\/completion$/)
+  if (options.method === 'POST' && completionMatch) {
+    return completeQuest(
+      decodeURIComponent(completionMatch[1]),
+      options.accessToken,
+    ) as T
+  }
+  const redesignMatch = path.match(/^\/quests\/([^/]+)\/failure-redesign$/)
+  if (options.method === 'POST' && redesignMatch) {
+    return redesignQuest(
+      decodeURIComponent(redesignMatch[1]),
+      options.body,
+      options.accessToken,
+    ) as T
   }
 
   throw new ApiError(404, 'NOT_FOUND', '요청한 기능을 찾을 수 없습니다.')

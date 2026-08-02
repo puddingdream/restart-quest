@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { QuestErrorFeedback } from '../questErrorFeedback'
 import type { DailyQuestResponse, QuestJourney } from '../types'
 import { TodayQuestContent } from './TodayQuestContent'
+import { QuestRedesignDialog } from './QuestRedesignDialog'
 
 function createJourney(position: number): QuestJourney {
   const quest = {
@@ -35,6 +36,9 @@ const plan: DailyQuestResponse = {
 
 const noop = () => undefined
 const changeEnergy = () => undefined
+const asyncNoop = async () => false
+const getNoError = () => null
+const isNotPending = () => false
 
 function renderContent(
   overrides: Partial<Parameters<typeof TodayQuestContent>[0]> = {},
@@ -47,9 +51,16 @@ function renderContent(
       error={null}
       isLoading={false}
       isGenerating={false}
+      outcomeAnnouncement={null}
       onEnergyChange={changeEnergy}
       onGenerate={noop}
       onRetry={noop}
+      isQuestPending={isNotPending}
+      getOutcomeError={getNoError}
+      onComplete={asyncNoop}
+      onRedesign={asyncNoop}
+      onRefresh={noop}
+      onClearOutcomeError={noop}
       {...overrides}
     />,
   )
@@ -95,6 +106,8 @@ test('생성 후 세 여정의 currentQuest, 완료 기준과 steps를 카드로
   assert.equal((markup.match(/첫 단계 [1-3]/g) ?? []).length, 3)
   assert.equal((markup.match(/aria-labelledby="quest-journey-/g) ?? []).length, 3)
   assert.match(markup, /aria-label="오늘의 퀘스트 세 개"/)
+  assert.equal((markup.match(/완료했어요/g) ?? []).length, 3)
+  assert.equal((markup.match(/더 작게 바꾸기/g) ?? []).length, 3)
 })
 
 test('AI 오류는 입력을 유지한 재시도 상태를 제공한다', () => {
@@ -109,4 +122,26 @@ test('AI 오류는 입력을 유지한 재시도 상태를 제공한다', () => 
   assert.match(markup, /role="alert"/)
   assert.match(markup, /checked="" value="HIGH"/)
   assert.match(markup, /다시 시도/)
+})
+
+test('재설계 dialog는 canonical 이유와 300자 선택 메모를 제공한다', () => {
+  const markup = renderToStaticMarkup(
+    <QuestRedesignDialog
+      quest={plan.journeys[0].currentQuest}
+      isSubmitting={false}
+      error={null}
+      onClose={noop}
+      onSubmit={asyncNoop}
+      onRefresh={noop}
+      onClearError={noop}
+    />,
+  )
+
+  assert.match(markup, /role="dialog"/)
+  assert.equal((markup.match(/name="reasonCode"/g) ?? []).length, 7)
+  assert.match(markup, /value="TIME_SHORTAGE"/)
+  assert.match(markup, /value="TASK_NOT_RELEVANT"/)
+  assert.match(markup, /value="OTHER"/)
+  assert.match(markup, /maxLength="300"/)
+  assert.match(markup, /선택 메모/)
 })
