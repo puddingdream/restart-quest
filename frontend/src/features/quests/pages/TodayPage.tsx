@@ -2,6 +2,7 @@ import { AppShell } from '../../../app/components/AppShell'
 import { useAuth } from '../../auth/AuthContext'
 import { TodayQuestContent } from '../components/TodayQuestContent'
 import { useTodayQuests } from '../hooks/useTodayQuests'
+import '../quests.css'
 
 export function TodayPage() {
   const { user } = useAuth()
