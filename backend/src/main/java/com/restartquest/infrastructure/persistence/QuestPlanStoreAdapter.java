@@ -5,10 +5,12 @@ import com.restartquest.domain.quest.DailyQuestPlan;
 import com.restartquest.domain.quest.QuestJourney;
 import com.restartquest.domain.quest.QuestOwnershipException;
 import com.restartquest.domain.quest.QuestStatus;
+import jakarta.persistence.LockModeType;
 import java.time.LocalDate;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -62,6 +64,13 @@ public class QuestPlanStoreAdapter implements QuestPlanStore {
 
     @Override
     @Transactional
+    public Optional<QuestJourney> findJourneyByQuestForUser(UUID userId, UUID questId) {
+        return journeyRepository.findOwnedJourneyByQuest(userId, questId)
+                .map(QuestPlanStoreAdapter::initializeJourney);
+    }
+
+    @Override
+    @Transactional
     public QuestJourney saveJourneyForUser(UUID userId, QuestJourney journey) {
         verifyOwner(userId, journey.getUserId());
         QuestJourney saved = journeyRepository.saveAndFlush(journey);
@@ -106,7 +115,7 @@ public class QuestPlanStoreAdapter implements QuestPlanStore {
     }
 
     private static QuestJourney initializeJourney(QuestJourney journey) {
-        journey.getQuests().size();
+        journey.getQuests().forEach(quest -> quest.getSteps().size());
         journey.getRedesigns().size();
         return journey;
     }
@@ -145,6 +154,23 @@ interface JpaQuestJourneyRepository extends JpaRepository<QuestJourney, UUID> {
             where plan.userId = :userId and journey.currentQuestId = :questId
             """)
     Optional<QuestJourney> findOwnedJourneyByCurrentQuest(
+            @Param("userId") UUID userId,
+            @Param("questId") UUID questId
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select journey
+            from QuestJourney journey
+            join fetch journey.dailyQuestPlan plan
+            where plan.userId = :userId
+              and exists (
+                  select quest.id
+                  from Quest quest
+                  where quest.journey = journey and quest.id = :questId
+              )
+            """)
+    Optional<QuestJourney> findOwnedJourneyByQuest(
             @Param("userId") UUID userId,
             @Param("questId") UUID questId
     );
