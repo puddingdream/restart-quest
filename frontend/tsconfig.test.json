@@ -26,6 +26,10 @@
     "src/features/quests/types.ts",
     "src/features/quests/questErrorFeedback.ts",
     "src/features/quests/questErrorFeedback.test.ts",
+    "src/features/quests/questOutcomeErrorFeedback.ts",
+    "src/features/quests/questOutcomeErrorFeedback.test.ts",
+    "src/features/quests/questOutcomeValidation.ts",
+    "src/features/quests/questOutcomeValidation.test.ts",
     "src/features/quests/components/EnergySelector.tsx",
     "src/features/quests/components/QuestCard.tsx",
     "src/features/quests/components/QuestSkeletons.tsx",
@@ -34,6 +38,8 @@
     "src/shared/api/ApiError.ts",
     "src/shared/api/mockApi.ts",
     "src/shared/api/mockApi.quests.test.ts",
+    "src/shared/api/queryRefresh.ts",
+    "src/shared/api/queryRefresh.test.ts",
     "src/shared/auth/sessionToken.ts",
     "src/shared/auth/sessionToken.test.ts"
   ]
