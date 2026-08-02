@@ -8,13 +8,13 @@ import {
   type ReactNode,
 } from 'react'
 import { authApi } from './api/authApi'
+import { clearAuthMockSession } from './api/authMockApi'
 import type { AuthUser, LoginInput, SignupInput } from './types'
 import {
   clearAccessToken,
   getAccessToken,
   storeAccessToken,
 } from '../../shared/auth/sessionToken'
-import { clearMockSession } from '../../shared/api/mockApi'
 
 type AuthStatus = 'checking' | 'anonymous' | 'authenticated'
 
@@ -52,7 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => {
         if (!active) return
         clearAccessToken()
-        clearMockSession()
+        clearAuthMockSession()
         setUser(null)
         setStatus('anonymous')
       })
@@ -85,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       logout() {
         clearAccessToken()
-        clearMockSession()
+        clearAuthMockSession()
         setUser(null)
         setStatus('anonymous')
       },

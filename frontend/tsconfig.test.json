@@ -23,6 +23,7 @@
     "src/features/onboarding/validation.test.ts",
     "src/features/onboarding/components/OnboardingForm.tsx",
     "src/features/onboarding/components/OnboardingForm.test.tsx",
+    "src/features/onboarding/api/mockFlow.test.ts",
     "src/shared/auth/sessionToken.ts",
     "src/shared/auth/sessionToken.test.ts"
   ]
