@@ -1,8 +1,11 @@
 import type { QuestErrorFeedback } from '../questErrorFeedback'
+import type { QuestOutcomeErrorFeedback } from '../questOutcomeErrorFeedback'
 import {
   ENERGY_LABELS,
   type DailyQuestResponse,
   type EnergyLevel,
+  type QuestJourney,
+  type RedesignQuestRequest,
 } from '../types'
 import { EnergySelector } from './EnergySelector'
 import { QuestCard } from './QuestCard'
@@ -15,9 +18,19 @@ interface TodayQuestContentProps {
   error: QuestErrorFeedback | null
   isLoading: boolean
   isGenerating: boolean
+  outcomeAnnouncement: string | null
   onEnergyChange: (energyLevel: EnergyLevel) => void
   onGenerate: () => void
   onRetry: () => void
+  isQuestPending: (questId: string) => boolean
+  getOutcomeError: (questId: string) => QuestOutcomeErrorFeedback | null
+  onComplete: (journey: QuestJourney) => Promise<boolean>
+  onRedesign: (
+    journey: QuestJourney,
+    input: RedesignQuestRequest,
+  ) => Promise<boolean>
+  onRefresh: () => void
+  onClearOutcomeError: (questId: string) => void
 }
 
 export function TodayQuestContent({
@@ -27,9 +40,16 @@ export function TodayQuestContent({
   error,
   isLoading,
   isGenerating,
+  outcomeAnnouncement,
   onEnergyChange,
   onGenerate,
   onRetry,
+  isQuestPending,
+  getOutcomeError,
+  onComplete,
+  onRedesign,
+  onRefresh,
+  onClearOutcomeError,
 }: TodayQuestContentProps) {
   if (isLoading) {
     return <QuestSkeletons label="오늘의 기존 계획을 확인하고 있어요." />
@@ -38,6 +58,9 @@ export function TodayQuestContent({
   if (plan) {
     return (
       <section className="quest-plan" aria-labelledby="quest-plan-title">
+        <p className="visually-hidden" role="status" aria-live="polite">
+          {outcomeAnnouncement}
+        </p>
         <div className="quest-plan-heading">
           <div>
             <p className="eyebrow">오늘의 세 여정</p>
@@ -53,6 +76,12 @@ export function TodayQuestContent({
               journey={journey}
               position={index + 1}
               key={journey.journeyId}
+              isPending={isQuestPending(journey.currentQuest.id)}
+              error={getOutcomeError(journey.currentQuest.id)}
+              onComplete={onComplete}
+              onRedesign={onRedesign}
+              onRefresh={onRefresh}
+              onClearError={onClearOutcomeError}
             />
           ))}
         </ol>

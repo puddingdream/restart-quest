@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  QUEST_QUERY_KEYS,
+  registerQueryRefresher,
+} from '../../../shared/api/queryRefresh'
 import { questApi } from '../api/questApi'
 import {
   getQuestErrorFeedback,
   type QuestErrorFeedback,
 } from '../questErrorFeedback'
-import type { DailyQuestResponse, EnergyLevel } from '../types'
+import type {
+  DailyQuestResponse,
+  EnergyLevel,
+  QuestJourney,
+} from '../types'
 
 export function useTodayQuests() {
   const [plan, setPlan] = useState<DailyQuestResponse | null>(null)
@@ -32,6 +40,17 @@ export function useTodayQuests() {
   useEffect(() => {
     void loadToday()
   }, [loadToday])
+
+  const refreshToday = useCallback(async () => {
+    const response = await questApi.getToday()
+    setPlan(response.journeys.length > 0 ? response : null)
+    setSelectedEnergy(response.energyLevel)
+  }, [])
+
+  useEffect(
+    () => registerQueryRefresher(QUEST_QUERY_KEYS.today, refreshToday),
+    [refreshToday],
+  )
 
   const generate = useCallback(async () => {
     if (submissionPending.current) return
@@ -65,6 +84,20 @@ export function useTodayQuests() {
     else void loadToday()
   }
 
+  const replaceJourney = useCallback((updatedJourney: QuestJourney) => {
+    setPlan((currentPlan) => {
+      if (!currentPlan) return currentPlan
+      return {
+        ...currentPlan,
+        journeys: currentPlan.journeys.map((journey) =>
+          journey.journeyId === updatedJourney.journeyId
+            ? updatedJourney
+            : journey,
+        ),
+      }
+    })
+  }, [])
+
   return {
     plan,
     selectedEnergy,
@@ -75,5 +108,7 @@ export function useTodayQuests() {
     selectEnergy,
     generate,
     retry,
+    refresh: loadToday,
+    replaceJourney,
   }
 }
