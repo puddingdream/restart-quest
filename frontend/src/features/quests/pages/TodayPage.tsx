@@ -1,9 +1,11 @@
-import { AppLink } from '../../../app/components/AppLink'
 import { AppShell } from '../../../app/components/AppShell'
 import { useAuth } from '../../auth/AuthContext'
+import { TodayQuestContent } from '../components/TodayQuestContent'
+import { useTodayQuests } from '../hooks/useTodayQuests'
 
 export function TodayPage() {
   const { user } = useAuth()
+  const todayQuests = useTodayQuests()
 
   return (
     <AppShell>
@@ -16,22 +18,17 @@ export function TodayPage() {
             구직 행동을 만날 수 있어요.
           </p>
         </section>
-        <section className="surface-card empty-feature" aria-labelledby="today-ready-title">
-          <span className="empty-icon" aria-hidden="true">
-            ↗
-          </span>
-          <div>
-            <p className="eyebrow">다음 행동</p>
-            <h2 id="today-ready-title">오늘의 퀘스트를 준비하고 있어요</h2>
-            <p>
-              퀘스트 생성 화면이 연결되면 이 자리에서 오늘의 에너지에 맞는 행동을
-              선택할 수 있어요.
-            </p>
-          </div>
-          <AppLink className="button button-secondary" to="/onboarding">
-            시작점 다시 확인하기
-          </AppLink>
-        </section>
+        <TodayQuestContent
+          plan={todayQuests.plan}
+          selectedEnergy={todayQuests.selectedEnergy}
+          validationError={todayQuests.validationError}
+          error={todayQuests.error}
+          isLoading={todayQuests.isLoading}
+          isGenerating={todayQuests.isGenerating}
+          onEnergyChange={todayQuests.selectEnergy}
+          onGenerate={() => void todayQuests.generate()}
+          onRetry={todayQuests.retry}
+        />
       </main>
     </AppShell>
   )
