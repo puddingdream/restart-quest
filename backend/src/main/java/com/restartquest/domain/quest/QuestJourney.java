@@ -147,6 +147,10 @@ public class QuestJourney {
         return dailyQuestPlan.getUserId();
     }
 
+    public EnergyLevel getEnergyLevel() {
+        return dailyQuestPlan.getEnergyLevel();
+    }
+
     public int getInitialSlot() {
         return initialSlot;
     }
