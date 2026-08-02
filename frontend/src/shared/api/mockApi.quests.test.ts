@@ -208,7 +208,7 @@ test('재설계 요청은 입력을 기록하고 같은 카드의 currentQuest�
   assert.equal(response.journey.currentQuest.category, original.category)
   assert.ok(response.journey.currentQuest.estimatedMinutes <= 15)
   assert.equal(response.journey.history[0].status, 'REDESIGNED')
-  assert.equal(response.journey.history.length, 2)
+  assert.equal(response.journey.history.length, 1)
   assert.equal(response.redesign.reasonCode, 'TASK_TOO_LARGE')
   assert.equal(response.redesign.reasonNote, '오늘은 첫 단계부터 시작하고 싶어요.')
 

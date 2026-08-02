@@ -5,6 +5,10 @@ import type {
   OnboardingRequest,
   OnboardingResponse,
 } from '../../features/onboarding/types'
+import type {
+  DashboardQuestSummary,
+  TodayDashboardResponse,
+} from '../../features/dashboard/types'
 import {
   ENERGY_LEVELS,
   type DailyQuestResponse,
@@ -18,10 +22,6 @@ import {
   throwMockQuestAiError,
   type MockQuestAiErrorCode,
 } from '../../features/quests/api/mockQuestOutcomes'
-import type {
-  DashboardQuestSummary,
-  TodayDashboardResponse,
-} from '../../features/dashboard/types'
 
 const MOCK_USER_KEY = 'restart-quest.mock-user'
 const MOCK_PROFILE_KEY = 'restart-quest.mock-profile'
@@ -184,7 +184,7 @@ function createDailyQuests(energyLevel: EnergyLevel): DailyQuestResponse {
     journeyId: `${date}-journey-${index + 1}`,
     status: 'ACTIVE',
     currentQuest: quest,
-    history: [quest],
+    history: [],
   }))
 
   return { date, energyLevel, generatedNow: true, journeys }
@@ -284,26 +284,8 @@ function createDemoDashboard(): TodayDashboardResponse {
   return {
     date,
     totalJourneys: 3,
-    completedJourneys: [
-      {
-        journeyId: `${date}-journey-1`,
-        questId: `${date}-quest-1`,
-        title: '이력서 경험 문장 하나 다듬기',
-        category: 'RESUME',
-        estimatedMinutes: 15,
-        completedAt: `${date}T09:20:00+09:00`,
-      },
-    ],
-    activeJourneys: [
-      nextQuest,
-      {
-        journeyId: `${date}-journey-3`,
-        questId: `${date}-quest-3`,
-        title: '면접 답변의 첫 문장 준비하기',
-        category: 'INTERVIEW',
-        estimatedMinutes: 20,
-      },
-    ],
+    completedJourneys: 1,
+    activeJourneys: 2,
     redesignCount: 1,
     progressPercent: 33,
     nextQuest,
@@ -327,8 +309,8 @@ function getTodayDashboard(accessToken: string | null): TodayDashboardResponse {
   return {
     date: getSeoulDate(),
     totalJourneys: 0,
-    completedJourneys: [],
-    activeJourneys: [],
+    completedJourneys: 0,
+    activeJourneys: 0,
     redesignCount: 0,
     progressPercent: 0,
     nextQuest: null,
