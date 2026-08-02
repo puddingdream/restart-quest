@@ -23,6 +23,17 @@
     "src/features/onboarding/validation.test.ts",
     "src/features/onboarding/components/OnboardingForm.tsx",
     "src/features/onboarding/components/OnboardingForm.test.tsx",
+    "src/features/quests/types.ts",
+    "src/features/quests/questErrorFeedback.ts",
+    "src/features/quests/questErrorFeedback.test.ts",
+    "src/features/quests/components/EnergySelector.tsx",
+    "src/features/quests/components/QuestCard.tsx",
+    "src/features/quests/components/QuestSkeletons.tsx",
+    "src/features/quests/components/TodayQuestContent.tsx",
+    "src/features/quests/components/TodayQuestContent.test.tsx",
+    "src/shared/api/ApiError.ts",
+    "src/shared/api/mockApi.ts",
+    "src/shared/api/mockApi.quests.test.ts",
     "src/shared/auth/sessionToken.ts",
     "src/shared/auth/sessionToken.test.ts"
   ]
