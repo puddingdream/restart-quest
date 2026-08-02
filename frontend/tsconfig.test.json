@@ -23,13 +23,6 @@
     "src/features/onboarding/validation.test.ts",
     "src/features/onboarding/components/OnboardingForm.tsx",
     "src/features/onboarding/components/OnboardingForm.test.tsx",
-    "src/features/dashboard/types.ts",
-    "src/features/dashboard/components/DashboardContent.tsx",
-    "src/features/dashboard/components/DashboardOverview.tsx",
-    "src/features/dashboard/components/DashboardStates.tsx",
-    "src/features/dashboard/components/DashboardContent.test.tsx",
-    "src/shared/api/mockApi.ts",
-    "src/shared/api/mockApi.dashboard.test.ts",
     "src/shared/auth/sessionToken.ts",
     "src/shared/auth/sessionToken.test.ts"
   ]
