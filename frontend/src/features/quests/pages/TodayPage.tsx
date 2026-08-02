@@ -3,6 +3,7 @@ import { useAuth } from '../../auth/AuthContext'
 import { TodayQuestContent } from '../components/TodayQuestContent'
 import { useQuestOutcomes } from '../hooks/useQuestOutcomes'
 import { useTodayQuests } from '../hooks/useTodayQuests'
+import '../../../styles/quest-outcomes.css'
 
 export function TodayPage() {
   const { user } = useAuth()

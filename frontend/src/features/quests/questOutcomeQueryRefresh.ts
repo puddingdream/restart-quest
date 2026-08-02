@@ -1,15 +1,16 @@
-export const QUEST_QUERY_KEYS = {
+export const QUEST_OUTCOME_QUERY_KEYS = {
   today: 'quests/today',
   dashboard: 'dashboard/today',
 } as const
 
-type QuestQueryKey = (typeof QUEST_QUERY_KEYS)[keyof typeof QUEST_QUERY_KEYS]
+type QuestOutcomeQueryKey =
+  (typeof QUEST_OUTCOME_QUERY_KEYS)[keyof typeof QUEST_OUTCOME_QUERY_KEYS]
 type QueryRefresher = () => void | Promise<void>
 
-const refreshers = new Map<QuestQueryKey, Set<QueryRefresher>>()
+const refreshers = new Map<QuestOutcomeQueryKey, Set<QueryRefresher>>()
 
-export function registerQueryRefresher(
-  queryKey: QuestQueryKey,
+export function registerQuestOutcomeQueryRefresher(
+  queryKey: QuestOutcomeQueryKey,
   refresher: QueryRefresher,
 ): () => void {
   const queryRefreshers = refreshers.get(queryKey) ?? new Set<QueryRefresher>()
@@ -24,8 +25,8 @@ export function registerQueryRefresher(
 
 export async function refreshQuestOutcomeQueries(): Promise<void> {
   const callbacks = [
-    ...(refreshers.get(QUEST_QUERY_KEYS.today) ?? []),
-    ...(refreshers.get(QUEST_QUERY_KEYS.dashboard) ?? []),
+    ...(refreshers.get(QUEST_OUTCOME_QUERY_KEYS.today) ?? []),
+    ...(refreshers.get(QUEST_OUTCOME_QUERY_KEYS.dashboard) ?? []),
   ]
 
   await Promise.allSettled(

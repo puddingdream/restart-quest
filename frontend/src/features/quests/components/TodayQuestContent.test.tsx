@@ -3,6 +3,7 @@ import test from 'node:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { QuestErrorFeedback } from '../questErrorFeedback'
 import type { DailyQuestResponse, QuestJourney } from '../types'
+import { registerQuestOutcomeInteractionTests } from '../testing/questOutcomeInteractions.test'
 import { TodayQuestContent } from './TodayQuestContent'
 import { QuestRedesignDialog } from './QuestRedesignDialog'
 
@@ -145,3 +146,29 @@ test('재설계 dialog는 canonical 이유와 300자 선택 메모를 제공한�
   assert.match(markup, /maxLength="300"/)
   assert.match(markup, /선택 메모/)
 })
+
+test('재설계 오류는 dialog 안에서 같은 입력 재시도 행동을 제공한다', () => {
+  const markup = renderToStaticMarkup(
+    <QuestRedesignDialog
+      quest={plan.journeys[0].currentQuest}
+      isSubmitting={false}
+      error={{
+        code: 'AI_PROVIDER_TIMEOUT',
+        source: 'redesign',
+        title: '더 작은 행동을 준비하는 데 평소보다 오래 걸렸어요',
+        message: '선택한 내용은 유지했어요. 잠시 후 다시 시도해 주세요.',
+        action: 'retry',
+      }}
+      onClose={noop}
+      onSubmit={asyncNoop}
+      onRefresh={noop}
+      onClearError={noop}
+    />,
+  )
+
+  assert.match(markup, /role="alert"/)
+  assert.match(markup, /선택한 내용은 유지했어요/)
+  assert.match(markup, /같은 내용으로 다시 시도/)
+})
+
+registerQuestOutcomeInteractionTests(plan)

@@ -1,4 +1,5 @@
 import { apiRequest } from '../../../shared/api/apiRequest'
+import { getAccessToken } from '../../../shared/auth/sessionToken'
 import type {
   DailyQuestResponse,
   GenerateDailyQuestRequest,
@@ -6,6 +7,17 @@ import type {
   RedesignQuestRequest,
   RedesignQuestResponse,
 } from '../types'
+import { questOutcomeMockApi } from './questOutcomeMockApi'
+
+function usesFeatureMock(): boolean {
+  const apiMode =
+    import.meta.env?.VITE_API_MODE ??
+    document
+      .querySelector<HTMLMetaElement>('meta[name="restart-quest-api-mode"]')
+      ?.getAttribute('content')
+
+  return apiMode !== 'http'
+}
 
 export const questApi = {
   getToday() {
@@ -18,11 +30,17 @@ export const questApi = {
     })
   },
   complete(questId: string) {
+    if (usesFeatureMock()) {
+      return questOutcomeMockApi.complete(questId, getAccessToken())
+    }
     return apiRequest<QuestJourney>(`/quests/${questId}/completion`, {
       method: 'POST',
     })
   },
   redesign(questId: string, input: RedesignQuestRequest) {
+    if (usesFeatureMock()) {
+      return questOutcomeMockApi.redesign(questId, input, getAccessToken())
+    }
     return apiRequest<RedesignQuestResponse>(
       `/quests/${questId}/failure-redesign`,
       { method: 'POST', body: input },
