@@ -29,8 +29,6 @@
     "src/features/dashboard/components/DashboardStates.tsx",
     "src/features/dashboard/components/DashboardContent.test.tsx",
     "src/features/quests/types.ts",
-    "src/features/quests/api/questWire.ts",
-    "src/features/quests/api/questWire.test.ts",
     "src/features/quests/questErrorFeedback.ts",
     "src/features/quests/questErrorFeedback.test.ts",
     "src/features/quests/questOutcomeErrorFeedback.ts",
