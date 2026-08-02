@@ -173,6 +173,10 @@ Controller에서 prompt, 상태 전이, DB query를 만들지 않는다. provide
 
 ## 7. API 계약 v1
 
+이 절의 wire 필드, nullable 규칙, producer/consumer 변환 기준은
+[`docs/api/quest-api.md`](api/quest-api.md)를 정본으로 삼는다. 화면 전용 view model과 mock fixture가
+정본 wire 응답과 다르면 실제 HTTP 경계에서 정본 응답을 view model로 변환한다.
+
 ### 7.1 공통 규칙
 
 - base path: `/api/v1`
@@ -218,7 +222,7 @@ AI 오류는 `AI_QUOTA_EXCEEDED`(429), `AI_INVALID_RESPONSE`(502), `AI_PROVIDER_
 | POST | `/quests/{questId}/completion` | 없음 | 200, 갱신된 `QuestJourneyResponse` |
 | POST | `/quests/{questId}/failure-redesign` | `reasonCode`, `reasonNote?` | 200, 갱신된 여정과 `redesign` |
 
-생성 응답은 `generatedNow`로 이번 호출에서 생성됐는지를 알린다. 온보딩을 완료하지 않은 사용자는 `ONBOARDING_REQUIRED`(409)를 받는다. 여정 응답에는 `journeyId`, `status`, `currentQuest`, `history`를 포함해 새로고침 후에도 재설계 맥락을 복원한다.
+생성 응답은 `generatedNow`로 이번 호출에서 생성됐는지를 알린다. 온보딩을 완료하지 않은 사용자는 `ONBOARDING_REQUIRED`(409)를 받는다. 여정 응답에는 `journeyId`, `status`, `currentQuest`, `history`를 포함한다. wire 퀘스트 식별자는 `questId`이며 frontend의 기존 화면 모델 `id`에는 API 경계에서 매핑한다. `currentQuest`는 현재 revision 하나이고 `history`는 현재 퀘스트를 중복하지 않는 이전 revision의 오래된 순 배열이다. 재설계 응답은 갱신된 여정 필드와 `redesign`을 같은 최상위 객체에 둔다.
 
 ### 7.4 대시보드
 
@@ -226,7 +230,7 @@ AI 오류는 `AI_QUOTA_EXCEEDED`(429), `AI_INVALID_RESPONSE`(502), `AI_PROVIDER_
 |---|---|---|---|
 | GET | `/dashboard/today` | 없음 | 200, 오늘 요약과 다음 행동 |
 
-응답 필드는 `date`, `totalJourneys`, `completedJourneys`, `activeJourneys`, `redesignCount`, `progressPercent`, `nextQuest`, `recentRedesigns`다. `progressPercent`는 완료 여정 수를 전체 여정 수로 나눈 진행 표시이며 사용자 평가 점수가 아니다.
+응답 필드는 `date`, `totalJourneys`, `completedJourneys`, `activeJourneys`, `redesignCount`, `progressPercent`, `nextQuest`, `recentRedesigns`다. `totalJourneys`, `completedJourneys`, `activeJourneys`, `redesignCount`, `progressPercent`는 모두 정수다. 완료/활성 여정 상세 배열이 아니므로 frontend는 이 필드에 `.length` 또는 `.map`을 적용하지 않는다. `progressPercent`는 완료 여정 수를 전체 여정 수로 나눈 진행 표시이며 사용자 평가 점수가 아니다.
 
 - 생성 전에는 여정 수와 진행률을 모두 `0`으로 반환한다. 생성 후 `totalJourneys`는 재설계 횟수와 무관하게 최초 세 여정이며, 정수 `progressPercent`는 완료 여정 비율을 반올림해 계산한다.
 - `nextQuest`는 최초 슬롯 순서에서 가장 앞선 `ACTIVE` 여정의 현재 퀘스트다. 모두 완료했거나 생성 전이면 `null`이다. 필드는 `journeyId`, `questId`, `revision`, `title`, `description`, `completionCriteria`, `steps`, `category`, `difficulty`, `estimatedMinutes`다.
