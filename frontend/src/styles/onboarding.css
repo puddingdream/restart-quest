@@ -1,0 +1,128 @@
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.55rem 1.4rem;
+}
+
+.field-span-2 {
+  grid-column: span 2;
+}
+
+.label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.label-row span {
+  color: #8b9995;
+  font-size: 0.7rem;
+}
+
+.input-suffix {
+  position: relative;
+}
+
+.input-suffix input {
+  padding-right: 3.5rem;
+}
+
+.input-suffix span {
+  position: absolute;
+  top: 50%;
+  right: 1rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.choice-fieldset {
+  padding: 0;
+  border: 0;
+  margin: 0;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.55rem;
+}
+
+.segmented-control label {
+  position: relative;
+}
+
+.segmented-control input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.segmented-control span {
+  display: grid;
+  min-height: 3.25rem;
+  padding: 0.7rem;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  color: var(--muted);
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.segmented-control input:checked + span {
+  border-color: var(--deep);
+  color: var(--deep);
+  background: #e9f1ed;
+  box-shadow: inset 0 0 0 1px var(--deep);
+}
+
+.segmented-control input:focus-visible + span {
+  outline: 3px solid rgba(207, 75, 36, 0.35);
+  outline-offset: 3px;
+}
+
+.onboarding-form > .alert {
+  margin-bottom: 1.5rem;
+}
+
+.onboarding-actions {
+  display: flex;
+  margin-top: 2.4rem;
+  padding-top: 1.7rem;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--line);
+  gap: 2rem;
+}
+
+.onboarding-actions p {
+  max-width: 35rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.65;
+}
+
+.onboarding-actions .button {
+  min-width: 14rem;
+}
+
+.loading-state {
+  display: grid;
+  min-height: 22rem;
+  place-content: center;
+  justify-items: center;
+  gap: 1rem;
+  color: var(--muted);
+}
+
+.loading-state p {
+  margin: 0;
+  font-size: 0.84rem;
+}
