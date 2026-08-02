@@ -23,7 +23,7 @@ function createJourney(position: number): QuestJourney {
     journeyId: `journey-${position}`,
     status: 'ACTIVE',
     currentQuest: quest,
-    history: [quest],
+    history: [],
   }
 }
 

@@ -11,17 +11,6 @@ function formatDate(date: string): string {
   return year && month && day ? `${year}년 ${Number(month)}월 ${Number(day)}일` : date
 }
 
-function formatTime(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-
-  return new Intl.DateTimeFormat('ko-KR', {
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: 'Asia/Seoul',
-  }).format(date)
-}
-
 function ProgressSummary({ data }: { data: TodayDashboardResponse }) {
   return (
     <section className="surface-card dashboard-summary" aria-labelledby="progress-title">
@@ -46,7 +35,7 @@ function ProgressSummary({ data }: { data: TodayDashboardResponse }) {
         </div>
         <div>
           <dt>마친 여정</dt>
-          <dd>{data.completedJourneys.length}</dd>
+          <dd>{data.completedJourneys}</dd>
         </div>
         <div>
           <dt>다시 설계한 기록</dt>
@@ -59,7 +48,7 @@ function ProgressSummary({ data }: { data: TodayDashboardResponse }) {
 
 function NextQuest({ data }: { data: TodayDashboardResponse }) {
   const quest = data.nextQuest
-  const isCompleted = data.completedJourneys.length === data.totalJourneys
+  const isCompleted = data.completedJourneys === data.totalJourneys
 
   return (
     <section className="surface-card dashboard-next" aria-labelledby="next-quest-title">
@@ -102,26 +91,13 @@ function CompletedJourneys({ data }: { data: TodayDashboardResponse }) {
           <p className="eyebrow">완료한 여정</p>
           <h2 id="completed-title">오늘 남긴 발걸음</h2>
         </div>
-        <span>{data.completedJourneys.length}개</span>
+        <span>{data.completedJourneys}개</span>
       </div>
-      {data.completedJourneys.length > 0 ? (
-        <ol className="dashboard-record-list">
-          {data.completedJourneys.map((journey) => (
-            <li key={journey.journeyId}>
-              <article>
-                <div>
-                  <span className="dashboard-category">
-                    {DASHBOARD_CATEGORY_LABELS[journey.category]}
-                  </span>
-                  <h3>{journey.title}</h3>
-                </div>
-                <time dateTime={journey.completedAt}>
-                  {formatTime(journey.completedAt)} 완료
-                </time>
-              </article>
-            </li>
-          ))}
-        </ol>
+      {data.completedJourneys > 0 ? (
+        <p className="dashboard-list-empty">
+          오늘 {data.completedJourneys}개 여정을 마쳤어요. 완료한 행동은 오늘의 퀘스트에서
+          확인할 수 있어요.
+        </p>
       ) : (
         <p className="dashboard-list-empty">첫 여정을 마치면 이곳에 기록돼요.</p>
       )}
@@ -130,6 +106,17 @@ function CompletedJourneys({ data }: { data: TodayDashboardResponse }) {
 }
 
 function RedesignRecords({ data }: { data: TodayDashboardResponse }) {
+  function formatTime(value: string): string {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+
+    return new Intl.DateTimeFormat('ko-KR', {
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: 'Asia/Seoul',
+    }).format(date)
+  }
+
   return (
     <section className="dashboard-list-section" aria-labelledby="redesign-title">
       <div className="dashboard-section-heading">

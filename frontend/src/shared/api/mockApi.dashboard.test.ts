@@ -47,7 +47,8 @@ test('canonical dashboard mock은 생성 전 empty 응답을 제공한다', asyn
   )
 
   assert.equal(dashboard.totalJourneys, 0)
-  assert.equal(dashboard.completedJourneys.length, 0)
+  assert.equal(dashboard.completedJourneys, 0)
+  assert.equal(dashboard.activeJourneys, 0)
   assert.equal(dashboard.nextQuest, null)
   assert.deepEqual(dashboard.recentRedesigns, [])
 })
@@ -65,11 +66,11 @@ test('canonical dashboard mock은 진행, 다음 행동과 기록 순서를 함�
   )
 
   assert.equal(dashboard.totalJourneys, 3)
-  assert.equal(dashboard.completedJourneys.length, 1)
-  assert.equal(dashboard.activeJourneys.length, 2)
+  assert.equal(dashboard.completedJourneys, 1)
+  assert.equal(dashboard.activeJourneys, 2)
   assert.equal(dashboard.progressPercent, 33)
   assert.equal(dashboard.redesignCount, 1)
-  assert.equal(dashboard.nextQuest?.journeyId, dashboard.activeJourneys[0]?.journeyId)
+  assert.equal(dashboard.nextQuest?.journeyId, `${dashboard.date}-journey-2`)
   assert.equal(
     dashboard.recentRedesigns[0]?.replacementQuestTitle,
     dashboard.nextQuest?.title,

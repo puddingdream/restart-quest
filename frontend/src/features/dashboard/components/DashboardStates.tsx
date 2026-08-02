@@ -7,7 +7,7 @@ function formatDate(date: string): string {
 }
 
 export function DashboardHeading({ data }: { data?: TodayDashboardResponse }) {
-  const completedCount = data?.completedJourneys.length ?? 0
+  const completedCount = data?.completedJourneys ?? 0
   const totalCount = data?.totalJourneys ?? 0
 
   return (
