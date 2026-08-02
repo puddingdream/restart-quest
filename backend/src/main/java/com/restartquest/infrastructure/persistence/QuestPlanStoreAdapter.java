@@ -106,7 +106,7 @@ public class QuestPlanStoreAdapter implements QuestPlanStore {
     }
 
     private static QuestJourney initializeJourney(QuestJourney journey) {
-        journey.getQuests().size();
+        journey.getQuests().forEach(quest -> quest.getSteps().size());
         journey.getRedesigns().size();
         return journey;
     }
