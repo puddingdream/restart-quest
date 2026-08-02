@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "jsx": "react-jsx",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": ".test-dist",
+    "rootDir": "src",
+    "types": ["node"]
+  },
+  "include": [
+    "src/app/routing.ts",
+    "src/app/routing.test.ts",
+    "src/features/auth/types.ts",
+    "src/features/auth/components/AuthForm.tsx",
+    "src/features/auth/components/AuthForm.test.tsx",
+    "src/features/onboarding/types.ts",
+    "src/features/onboarding/validation.ts",
+    "src/features/onboarding/validation.test.ts",
+    "src/features/onboarding/components/OnboardingForm.tsx",
+    "src/features/onboarding/components/OnboardingForm.test.tsx",
+    "src/shared/auth/sessionToken.ts",
+    "src/shared/auth/sessionToken.test.ts"
+  ]
+}
