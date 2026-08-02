@@ -281,12 +281,17 @@ provider DTO는 `replacementQuest` 하나를 가진다. 애플리케이션은 ca
 
 ## 11. 구현 패키지 DAG
 
-의존성은 코드·계약 선행 조건만 나타낸다. frontend는 이 문서의 API 계약과 mock으로 backend와 병렬 구현하고, 실제 서버 결합은 마지막 통합 패키지에서 검증한다.
+의존성은 코드·계약 선행 조건만 나타낸다. frontend는 이 문서의 API 계약과 mock으로 backend와 병렬 구현하고, 실제 서버 결합은 마지막 통합 패키지에서 검증한다. 패키지별 정확한 수정 허용 경로, 단일 소유 파일, worker SHA와 dependency-relative 경로 감사 결과는 `docs/MVP_PACKAGE_BOUNDARIES.md`를 canonical ledger로 사용한다.
+
+`domain/application/infrastructure/presentation`을 실제 Java package의 최상위 계층으로 사용하는 현재 구조를 기준으로 경계를 잡는다. 과거 설계의 `com/restartquest/quest/...` 경로를 사후 허용하지 않는다. 여러 use case가 함께 쓰는 저장소 port/adapter와 공개 quest 응답 모델은 각각 독립된 선행 패키지로 분리해 endpoint 패키지가 같은 파일을 병렬 수정하지 않게 한다.
 
 ```text
 be-user-context -> be-quest-domain
-be-quest-domain -> be-ai-adapter, be-quest-completion, be-dashboard
-be-ai-adapter -> be-daily-generation, be-failure-redesign
+be-quest-domain -> be-quest-storage, be-quest-api-model, be-ai-adapter
+be-quest-storage -> be-dashboard
+be-quest-storage + be-quest-api-model -> be-quest-completion
+be-quest-storage + be-quest-api-model + be-ai-adapter
+-> be-daily-generation, be-failure-redesign
 
 fe-app-entry -> fe-today-quests, fe-dashboard
 fe-today-quests -> fe-quest-outcomes
@@ -298,19 +303,23 @@ backend endpoint packages + fe-quest-outcomes + fe-dashboard
 | packageId | role | 독립 검증 목표 | dependsOn |
 |---|---|---|---|
 | `be-user-context` | backend | bootstrap, 인증, 내 정보, 온보딩 API | 없음 |
-| `be-quest-domain` | backend | 일일 계획/여정/퀘스트/재설계 도메인과 persistence 불변식 | `be-user-context` |
+| `be-quest-domain` | backend | 일일 계획/여정/퀘스트/재설계의 순수 도메인 불변식 | `be-user-context` |
+| `be-quest-storage` | backend | 사용자 범위 조회·잠금·저장을 제공하는 공용 quest store port/adapter | `be-quest-domain` |
+| `be-quest-api-model` | backend | endpoint가 공유하는 quest 여정/현재 퀘스트 응답 모델과 직렬화 계약 | `be-quest-domain` |
 | `be-ai-adapter` | backend | typed AI port, schema 검증, provider 오류 분류 | `be-quest-domain` |
-| `be-daily-generation` | backend | 당일 멱등 생성 및 조회 API | `be-ai-adapter` |
-| `be-quest-completion` | backend | 현재 퀘스트 완료 상태 전이 API | `be-quest-domain` |
-| `be-failure-redesign` | backend | 이유 기록과 단일 대체 퀘스트의 원자적 재설계 API | `be-ai-adapter` |
-| `be-dashboard` | backend | 세 여정 기준 오늘 집계 read model API | `be-quest-domain` |
-| `fe-app-entry` | frontend | React shell, 인증, route guard, 온보딩 | 없음 |
+| `be-daily-generation` | backend | 당일 멱등 생성 및 조회 API | `be-ai-adapter`, `be-quest-storage`, `be-quest-api-model` |
+| `be-quest-completion` | backend | 현재 퀘스트 완료 상태 전이 API | `be-quest-storage`, `be-quest-api-model` |
+| `be-failure-redesign` | backend | 이유 기록과 단일 대체 퀘스트의 원자적 재설계 API | `be-ai-adapter`, `be-quest-storage`, `be-quest-api-model` |
+| `be-dashboard` | backend | 세 여정 기준 오늘 집계 read model API | `be-quest-storage` |
+| `fe-app-entry` | frontend | React shell, build/test 설정, shared API router, 인증, route guard, 온보딩 | 없음 |
 | `fe-today-quests` | frontend | mock 계약 기반 생성 전/후 오늘 퀘스트 화면 | `fe-app-entry` |
 | `fe-quest-outcomes` | frontend | 완료 및 이유 선택/재설계 상호작용 | `fe-today-quests` |
 | `fe-dashboard` | frontend | mock 계약 기반 오늘 요약과 다음 행동 화면 | `fe-app-entry` |
-| `fe-core-flow-integration` | frontend | 실제 backend를 붙인 핵심 흐름 smoke/E2E | backend endpoint 4개와 frontend 기능 2개 |
+| `fe-core-flow-integration` | frontend | 실제 backend를 붙인 핵심 흐름 smoke/E2E | `be-daily-generation`, `be-quest-completion`, `be-failure-redesign`, `be-dashboard`, `fe-quest-outcomes`, `fe-dashboard` |
 
-각 패키지의 전체 완료 조건, 필수 컨텍스트, 수정 허용 경로는 AgentFlow design backlog report에 기록한다.
+`frontend/package.json`, lockfile, TypeScript/Vite/ESLint 설정, `src/shared/api` router, 공통 style entry는 `fe-app-entry`만 소유한다. 이후 feature는 자기 feature 아래 handler와 test를 등록하고 feature CSS를 component/page에서 직접 import한다. `fe-core-flow-integration`은 E2E script만 소유하며 root 설정 변경이 필요하면 `fe-app-entry` 소유 변경으로 먼저 반영한다.
+
+각 패키지의 전체 완료 조건과 필수 컨텍스트도 `docs/MVP_PACKAGE_BOUNDARIES.md` 및 동일 revision의 AgentFlow design backlog report에 기록한다. 현재 worker head의 책임 밖 변경은 허용 경계를 넓히지 않고 ledger의 residual mismatch 대상 package로 이동한 뒤 dependency head를 갱신한다.
 
 ## 12. 공통 완료 기준
 
