@@ -4,9 +4,27 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { TodayDashboardResponse, TodayDashboardState } from '../types'
 import { DashboardContent } from './DashboardContent'
 
+class MemoryStorage {
+  private readonly values = new Map<string, string>()
+
+  getItem(key: string) {
+    return this.values.get(key) ?? null
+  }
+
+  setItem(key: string, value: string) {
+    this.values.set(key, value)
+  }
+
+  removeItem(key: string) {
+    this.values.delete(key)
+  }
+}
+
 Object.defineProperty(globalThis, 'window', {
   configurable: true,
   value: {
+    sessionStorage: new MemoryStorage(),
+    setTimeout,
     location: { pathname: '/dashboard' },
     history: { pushState() {}, replaceState() {} },
     addEventListener() {},
