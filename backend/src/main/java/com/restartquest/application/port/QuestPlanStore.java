@@ -16,5 +16,7 @@ public interface QuestPlanStore {
 
     Optional<QuestJourney> findJourneyByCurrentQuestForUser(UUID userId, UUID questId);
 
+    Optional<QuestJourney> findJourneyByQuestForUser(UUID userId, UUID questId);
+
     QuestJourney saveJourneyForUser(UUID userId, QuestJourney journey);
 }
