@@ -3,6 +3,9 @@ import { getAccessToken } from '../../../shared/auth/sessionToken'
 import type {
   DailyQuestResponse,
   GenerateDailyQuestRequest,
+  QuestJourney,
+  RedesignQuestRequest,
+  RedesignQuestResponse,
 } from '../types'
 import { questMockApi } from './questMockApi'
 
@@ -29,5 +32,16 @@ export const questApi = {
       method: 'POST',
       body: input,
     })
+  },
+  complete(questId: string) {
+    return apiRequest<QuestJourney>(`/quests/${questId}/completion`, {
+      method: 'POST',
+    })
+  },
+  redesign(questId: string, input: RedesignQuestRequest) {
+    return apiRequest<RedesignQuestResponse>(
+      `/quests/${questId}/failure-redesign`,
+      { method: 'POST', body: input },
+    )
   },
 }
