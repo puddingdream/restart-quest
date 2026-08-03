@@ -11,22 +11,24 @@ import {
   type EnergyLevel,
   type Quest,
   type QuestJourney,
+  type QuestRedesign,
 } from '../../features/quests/types'
+import {
+  completeMockQuest,
+  redesignMockQuest,
+  throwMockQuestAiError,
+  type MockQuestAiErrorCode,
+} from '../../features/quests/api/mockQuestOutcomes'
 
 const MOCK_USER_KEY = 'restart-quest.mock-user'
 const MOCK_PROFILE_KEY = 'restart-quest.mock-profile'
 const MOCK_DAILY_QUEST_KEY = 'restart-quest.mock-daily-quest'
 const MOCK_NEXT_QUEST_ERROR_KEY = 'restart-quest.mock-next-quest-error'
 
-type MockQuestAiErrorCode =
-  | 'AI_QUOTA_EXCEEDED'
-  | 'AI_INVALID_RESPONSE'
-  | 'AI_PROVIDER_UNAVAILABLE'
-  | 'AI_PROVIDER_TIMEOUT'
-
 interface StoredDailyQuest {
   userId: string
   plan: DailyQuestResponse
+  redesigns?: QuestRedesign[]
 }
 
 interface MockRequestOptions {
@@ -144,19 +146,36 @@ function createQuest(
   }
 }
 
-function createDailyQuests(energyLevel: EnergyLevel): DailyQuestResponse {
+function createDailyQuests(
+  energyLevel: EnergyLevel,
+  hasResume: boolean,
+): DailyQuestResponse {
   const date = getSeoulDate()
   const minuteOffset = energyLevel === 'LOW' ? -5 : energyLevel === 'HIGH' ? 5 : 0
   const quests = [
-    createQuest(date, 1, {
-      title: '이력서 한 문장 선명하게 다듬기',
-      description: '최근 경험 하나를 골라 맡은 역할과 결과가 드러나도록 정리해요.',
-      completionCriteria: '이력서 경험 항목의 문장 하나를 수정해 저장하면 완료예요.',
-      steps: ['수정할 경험 한 개 고르기', '행동과 결과를 한 문장으로 적기', '이력서에 반영해 저장하기'],
-      category: 'RESUME',
-      difficulty: energyLevel === 'HIGH' ? 'MEDIUM' : 'EASY',
-      estimatedMinutes: 15 + minuteOffset,
-    }),
+    hasResume
+      ? createQuest(date, 1, {
+          title: '이력서 한 문장 선명하게 다듬기',
+          description: '최근 경험 하나를 골라 맡은 역할과 결과가 드러나도록 정리해요.',
+          completionCriteria: '이력서 경험 항목의 문장 하나를 수정해 저장하면 완료예요.',
+          steps: [
+            '수정할 경험 한 개 고르기',
+            '행동과 결과를 한 문장으로 적기',
+            '이력서에 반영해 저장하기',
+          ],
+          category: 'RESUME',
+          difficulty: energyLevel === 'HIGH' ? 'MEDIUM' : 'EASY',
+          estimatedMinutes: 15 + minuteOffset,
+        })
+      : createQuest(date, 1, {
+          title: '이력서에 넣을 경험 하나 고르기',
+          description: '이력서가 없어도 괜찮아요. 먼저 적어 볼 경험 소재 하나만 골라요.',
+          completionCriteria: '경험 하나의 상황과 내가 한 일을 두 줄로 메모하면 완료예요.',
+          steps: ['최근 경험 한 개 떠올리기', '상황과 내가 한 일을 한 줄씩 적기'],
+          category: 'RESUME',
+          difficulty: 'EASY',
+          estimatedMinutes: 15 + minuteOffset,
+        }),
     createQuest(date, 2, {
       title: '관심 공고 한 개 살펴보기',
       description: '지원 결정을 서두르지 않고, 관심 가는 공고에서 핵심 조건만 찾아봐요.',
@@ -223,18 +242,58 @@ function generateTodayQuests(
   )
   if (nextError) {
     window.sessionStorage.removeItem(MOCK_NEXT_QUEST_ERROR_KEY)
-    const statusByCode: Record<MockQuestAiErrorCode, number> = {
-      AI_QUOTA_EXCEEDED: 429,
-      AI_INVALID_RESPONSE: 502,
-      AI_PROVIDER_UNAVAILABLE: 503,
-      AI_PROVIDER_TIMEOUT: 504,
-    }
-    throw new ApiError(statusByCode[nextError], nextError, '퀘스트 생성 요청을 처리하지 못했습니다.')
+    throwMockQuestAiError(nextError)
   }
 
-  const plan = createDailyQuests(energyLevel as EnergyLevel)
+  const profile = readSessionValue<OnboardingProfile>(MOCK_PROFILE_KEY)
+  const hasResume = profile?.userId === user.id && profile.hasResume
+  const plan = createDailyQuests(energyLevel as EnergyLevel, hasResume)
   storeSessionValue(MOCK_DAILY_QUEST_KEY, { userId: user.id, plan })
   return plan
+}
+
+function requireStoredDailyQuest(
+  accessToken: string | null,
+): StoredDailyQuest {
+  const user = requireUser(accessToken)
+  const stored = readSessionValue<StoredDailyQuest>(MOCK_DAILY_QUEST_KEY)
+  if (!stored || stored.userId !== user.id || stored.plan.date !== getSeoulDate()) {
+    throw new ApiError(404, 'QUEST_NOT_FOUND', '오늘의 퀘스트를 찾을 수 없습니다.')
+  }
+  return stored
+}
+
+function completeQuest(
+  questId: string,
+  accessToken: string | null,
+): QuestJourney {
+  const stored = requireStoredDailyQuest(accessToken)
+  const result = completeMockQuest(stored.plan, questId)
+  storeSessionValue(MOCK_DAILY_QUEST_KEY, {
+    ...stored,
+    plan: result.plan,
+  })
+  return result.journey
+}
+
+function redesignQuest(
+  questId: string,
+  body: unknown,
+  accessToken: string | null,
+) {
+  const stored = requireStoredDailyQuest(accessToken)
+  const nextError = readSessionValue<MockQuestAiErrorCode>(
+    MOCK_NEXT_QUEST_ERROR_KEY,
+  )
+  if (nextError) window.sessionStorage.removeItem(MOCK_NEXT_QUEST_ERROR_KEY)
+
+  const result = redesignMockQuest(stored.plan, questId, body, nextError)
+  storeSessionValue(MOCK_DAILY_QUEST_KEY, {
+    ...stored,
+    plan: result.plan,
+    redesigns: [...(stored.redesigns ?? []), result.response.redesign],
+  })
+  return result.response
 }
 
 export async function mockRequest<T>(
@@ -263,6 +322,21 @@ export async function mockRequest<T>(
   }
   if (route === 'POST /quests/today/generate') {
     return generateTodayQuests(options.body, options.accessToken) as T
+  }
+  const completionMatch = path.match(/^\/quests\/([^/]+)\/completion$/)
+  if (options.method === 'POST' && completionMatch) {
+    return completeQuest(
+      decodeURIComponent(completionMatch[1]),
+      options.accessToken,
+    ) as T
+  }
+  const redesignMatch = path.match(/^\/quests\/([^/]+)\/failure-redesign$/)
+  if (options.method === 'POST' && redesignMatch) {
+    return redesignQuest(
+      decodeURIComponent(redesignMatch[1]),
+      options.body,
+      options.accessToken,
+    ) as T
   }
 
   throw new ApiError(404, 'NOT_FOUND', '요청한 기능을 찾을 수 없습니다.')

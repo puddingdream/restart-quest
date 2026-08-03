@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useAuth } from '../../auth/AuthContext'
 import { questApi } from '../api/questApi'
 import {
   getQuestErrorFeedback,
   type QuestErrorFeedback,
 } from '../questErrorFeedback'
-import type { DailyQuestResponse, EnergyLevel } from '../types'
+import type {
+  DailyQuestResponse,
+  EnergyLevel,
+  QuestJourney,
+} from '../types'
 
 export function useTodayQuests() {
+  const { logout } = useAuth()
   const [plan, setPlan] = useState<DailyQuestResponse | null>(null)
   const [selectedEnergy, setSelectedEnergy] = useState<EnergyLevel | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
@@ -61,9 +67,24 @@ export function useTodayQuests() {
   }
 
   function retry() {
-    if (error?.source === 'generate') void generate()
+    if (error?.action === 'login') logout()
+    else if (error?.source === 'generate') void generate()
     else void loadToday()
   }
+
+  const replaceJourney = useCallback((updatedJourney: QuestJourney) => {
+    setPlan((currentPlan) => {
+      if (!currentPlan) return currentPlan
+      return {
+        ...currentPlan,
+        journeys: currentPlan.journeys.map((journey) =>
+          journey.journeyId === updatedJourney.journeyId
+            ? updatedJourney
+            : journey,
+        ),
+      }
+    })
+  }, [])
 
   return {
     plan,
@@ -75,5 +96,7 @@ export function useTodayQuests() {
     selectEnergy,
     generate,
     retry,
+    refresh: loadToday,
+    replaceJourney,
   }
 }
