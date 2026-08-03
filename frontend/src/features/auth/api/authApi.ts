@@ -5,21 +5,26 @@ import type {
   LoginInput,
   SignupInput,
 } from '../types'
+import { authMockApi } from './authMockApi'
 
 export const authApi = {
   signup(input: SignupInput) {
     return apiRequest<AuthResponse>('/auth/signup', {
       method: 'POST',
       body: input,
+      mock: () => authMockApi.signup(input),
     })
   },
   login(input: LoginInput) {
     return apiRequest<AuthResponse>('/auth/login', {
       method: 'POST',
       body: input,
+      mock: () => authMockApi.login(input),
     })
   },
   me() {
-    return apiRequest<AuthUser>('/users/me')
+    return apiRequest<AuthUser>('/users/me', {
+      mock: ({ accessToken }) => authMockApi.me(accessToken),
+    })
   },
 }

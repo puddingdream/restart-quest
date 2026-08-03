@@ -1,10 +1,9 @@
 import { useEffect } from 'react'
-import { DashboardPage } from '../features/dashboard/pages/DashboardPage'
 import { AuthPage } from '../features/auth/pages/AuthPage'
 import { useAuth } from '../features/auth/AuthContext'
 import { OnboardingPage } from '../features/onboarding/pages/OnboardingPage'
-import { TodayPage } from '../features/quests/pages/TodayPage'
 import { LoadingScreen } from './components/LoadingScreen'
+import { ProtectedRoutePlaceholder } from './components/ProtectedRoutePlaceholder'
 import { resolveRoute, useAppNavigation, type ViewRoute } from './routing'
 
 function renderRoute(route: ViewRoute) {
@@ -16,9 +15,9 @@ function renderRoute(route: ViewRoute) {
     case '/onboarding':
       return <OnboardingPage />
     case '/today':
-      return <TodayPage />
+      return <ProtectedRoutePlaceholder route="today" />
     case '/dashboard':
-      return <DashboardPage />
+      return <ProtectedRoutePlaceholder route="dashboard" />
   }
 }
 
