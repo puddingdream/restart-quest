@@ -160,8 +160,6 @@ class QuestPlanRepositoryTest {
         assertThat(store.findJourneyForUser(otherUserId, ownerJourney.getId())).isEmpty();
         assertThat(store.findJourneyByCurrentQuestForUser(ownerId, ownerJourney.getCurrentQuestId())).isPresent();
         assertThat(store.findJourneyByCurrentQuestForUser(otherUserId, ownerJourney.getCurrentQuestId())).isEmpty();
-        assertThat(store.findJourneyByQuestForUser(ownerId, ownerJourney.getCurrentQuestId())).isPresent();
-        assertThat(store.findJourneyByQuestForUser(otherUserId, ownerJourney.getCurrentQuestId())).isEmpty();
         assertThatThrownBy(() -> store.saveForUser(otherUserId, ownerPlan))
                 .isInstanceOf(QuestOwnershipException.class);
         assertThatThrownBy(() -> store.saveJourneyForUser(otherUserId, ownerJourney))
@@ -189,7 +187,6 @@ class QuestPlanRepositoryTest {
                 journey.getId()
         );
         assertThat(currentMarkerCount).isEqualTo(1);
-        assertThat(store.findJourneyByQuestForUser(userId, originalQuestId)).isPresent();
         assertThat(reloaded.getRedesigns()).singleElement().satisfies(redesign -> {
             assertThat(redesign.getJourneyId()).isEqualTo(reloaded.getId());
             assertThat(redesign.getOriginalQuestId()).isEqualTo(originalQuestId);

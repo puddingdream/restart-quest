@@ -19,6 +19,11 @@ import com.restartquest.domain.quest.QuestStatus;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -27,6 +32,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
@@ -104,6 +110,53 @@ class QuestCompletionApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner.accessToken())))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("QUEST_ALREADY_RESOLVED"));
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void concurrentDuplicateCompletionAllowsExactlyOneTransition() throws Exception {
+        SignedInUser owner = signup("concurrent-completion-owner@example.com");
+        QuestJourney journey = savePlan(owner.userId()).getJourneys().get(0);
+        UUID questId = journey.getCurrentQuestId();
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<Integer> firstStatus = executor.submit(() -> completeConcurrently(owner, questId, ready, start));
+            Future<Integer> secondStatus = executor.submit(() -> completeConcurrently(owner, questId, ready, start));
+
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            assertThat(List.of(
+                    firstStatus.get(10, TimeUnit.SECONDS),
+                    secondStatus.get(10, TimeUnit.SECONDS)
+            )).containsExactlyInAnyOrder(200, 409);
+
+            QuestJourney completed = questPlanStore.findJourneyForUser(owner.userId(), journey.getId()).orElseThrow();
+            assertThat(completed.getCurrentQuest().getStatus()).isEqualTo(QuestStatus.DONE);
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    private int completeConcurrently(
+            SignedInUser owner,
+            UUID questId,
+            CountDownLatch ready,
+            CountDownLatch start
+    ) throws Exception {
+        ready.countDown();
+        if (!start.await(5, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("동시 완료 요청 시작 신호를 받지 못했습니다.");
+        }
+        return mockMvc.perform(post("/api/v1/quests/{questId}/completion", questId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner.accessToken())))
+                .andReturn()
+                .getResponse()
+                .getStatus();
     }
 
     private SignedInUser signup(String email) throws Exception {
