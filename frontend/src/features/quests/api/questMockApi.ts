@@ -1,6 +1,12 @@
 import type { AuthUser } from '../../auth/types'
 import { requireMockUser } from '../../auth/api/authMockApi'
+import { readMockProfile } from '../../onboarding/api/onboardingMockApi'
 import { ApiError } from '../../../shared/api/ApiError'
+import {
+  clearStoredDailyQuest,
+  readStoredDailyQuest,
+  saveStoredDailyQuest,
+} from './questMockStore'
 import {
   ENERGY_LEVELS,
   type DailyQuestResponse,
@@ -10,7 +16,6 @@ import {
   type QuestJourney,
 } from '../types'
 
-const MOCK_DAILY_QUEST_KEY = 'restart-quest.mock-daily-quest'
 const MOCK_NEXT_QUEST_ERROR_KEY = 'restart-quest.mock-next-quest-error'
 
 export type MockQuestAiErrorCode =
@@ -18,11 +23,6 @@ export type MockQuestAiErrorCode =
   | 'AI_INVALID_RESPONSE'
   | 'AI_PROVIDER_UNAVAILABLE'
   | 'AI_PROVIDER_TIMEOUT'
-
-interface StoredDailyQuest {
-  userId: string
-  plan: DailyQuestResponse
-}
 
 function readSessionValue<T>(key: string): T | null {
   const value = window.sessionStorage.getItem(key)
@@ -62,19 +62,30 @@ function createQuest(
   }
 }
 
-function createDailyQuests(energyLevel: EnergyLevel): DailyQuestResponse {
+function createDailyQuests(
+  energyLevel: EnergyLevel,
+  hasResume: boolean,
+): DailyQuestResponse {
   const date = getSeoulDate()
   const minuteOffset = energyLevel === 'LOW' ? -5 : energyLevel === 'HIGH' ? 5 : 0
   const quests = [
     createQuest(date, 1, {
-      title: '이력서 한 문장 선명하게 다듬기',
-      description: '최근 경험 하나를 골라 맡은 역할과 결과가 드러나도록 정리해요.',
-      completionCriteria: '이력서 경험 항목의 문장 하나를 수정해 저장하면 완료예요.',
-      steps: [
-        '수정할 경험 한 개 고르기',
-        '행동과 결과를 한 문장으로 적기',
-        '이력서에 반영해 저장하기',
-      ],
+      title: hasResume
+        ? '이력서 한 문장 선명하게 다듬기'
+        : '이력서에 넣을 경험 하나 고르기',
+      description: hasResume
+        ? '최근 경험 하나를 골라 맡은 역할과 결과가 드러나도록 정리해요.'
+        : '아직 이력서가 없어도 괜찮아요. 먼저 적어볼 경험 하나만 골라요.',
+      completionCriteria: hasResume
+        ? '이력서 경험 항목의 문장 하나를 수정해 저장하면 완료예요.'
+        : '이력서에 넣고 싶은 경험 이름 하나를 메모하면 완료예요.',
+      steps: hasResume
+        ? [
+            '수정할 경험 한 개 고르기',
+            '행동과 결과를 한 문장으로 적기',
+            '이력서에 반영해 저장하기',
+          ]
+        : ['기억나는 경험 세 개 적기', '지금 설명하기 쉬운 경험 하나 표시하기'],
       category: 'RESUME',
       difficulty: energyLevel === 'HIGH' ? 'MEDIUM' : 'EASY',
       estimatedMinutes: 15 + minuteOffset,
@@ -110,7 +121,7 @@ function createDailyQuests(energyLevel: EnergyLevel): DailyQuestResponse {
 
 function findTodayPlan(userId: string): DailyQuestResponse {
   const date = getSeoulDate()
-  const stored = readSessionValue<StoredDailyQuest>(MOCK_DAILY_QUEST_KEY)
+  const stored = readStoredDailyQuest()
   if (!stored || stored.userId !== userId || stored.plan.date !== date) {
     return { date, energyLevel: null, generatedNow: false, journeys: [] }
   }
@@ -166,14 +177,18 @@ export const questMockApi = {
       )
     }
 
-    const plan = createDailyQuests(input.energyLevel)
-    storeSessionValue(MOCK_DAILY_QUEST_KEY, { userId: user.id, plan })
+    const profile = readMockProfile()
+    const plan = createDailyQuests(
+      input.energyLevel,
+      profile?.userId === user.id ? profile.hasResume : false,
+    )
+    saveStoredDailyQuest({ userId: user.id, plan, redesigns: [] })
     return plan
   },
 }
 
 export function clearQuestMockSession(): void {
-  window.sessionStorage.removeItem(MOCK_DAILY_QUEST_KEY)
+  clearStoredDailyQuest()
   window.sessionStorage.removeItem(MOCK_NEXT_QUEST_ERROR_KEY)
 }
 

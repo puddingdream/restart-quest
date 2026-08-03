@@ -3,12 +3,13 @@ import {
   createContext,
   useContext,
   useEffect,
+  useCallback,
   useMemo,
   useState,
   type ReactNode,
 } from 'react'
 import { authApi } from './api/authApi'
-import { clearAuthMockSession } from './api/authMockApi'
+import { ApiError } from '../../shared/api/ApiError'
 import type { AuthUser, LoginInput, SignupInput } from './types'
 import {
   clearAccessToken,
@@ -16,7 +17,7 @@ import {
   storeAccessToken,
 } from '../../shared/auth/sessionToken'
 
-type AuthStatus = 'checking' | 'anonymous' | 'authenticated'
+type AuthStatus = 'checking' | 'anonymous' | 'authenticated' | 'unavailable'
 
 interface AuthContextValue {
   status: AuthStatus
@@ -24,7 +25,9 @@ interface AuthContextValue {
   login: (input: LoginInput) => Promise<void>
   signup: (input: SignupInput) => Promise<void>
   markOnboardingCompleted: () => void
-  logout: () => void
+  logout: () => Promise<void>
+  expireSession: () => void
+  retrySession: () => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -33,15 +36,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('checking')
   const [user, setUser] = useState<AuthUser | null>(null)
 
-  useEffect(() => {
+  const expireSession = useCallback(() => {
+    clearAccessToken()
+    setUser(null)
+    setStatus('anonymous')
+  }, [])
+
+  const checkSession = useCallback(() => {
     let active = true
     if (!getAccessToken()) {
       setStatus('anonymous')
-      return () => {
-        active = false
-      }
+      return () => undefined
     }
 
+    setStatus('checking')
     authApi
       .me()
       .then((currentUser) => {
@@ -49,18 +57,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(currentUser)
         setStatus('authenticated')
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!active) return
-        clearAccessToken()
-        clearAuthMockSession()
-        setUser(null)
-        setStatus('anonymous')
+        if (error instanceof ApiError && [401, 403].includes(error.status)) {
+          expireSession()
+          return
+        }
+        setStatus('unavailable')
       })
 
     return () => {
       active = false
     }
-  }, [])
+  }, [expireSession])
+
+  useEffect(() => checkSession(), [checkSession])
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -83,14 +94,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           current ? { ...current, onboardingCompleted: true } : current,
         )
       },
-      logout() {
-        clearAccessToken()
-        clearAuthMockSession()
-        setUser(null)
-        setStatus('anonymous')
+      async logout() {
+        try {
+          await authApi.logout()
+        } finally {
+          expireSession()
+        }
       },
+      expireSession,
+      retrySession: checkSession,
     }),
-    [status, user],
+    [checkSession, expireSession, status, user],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

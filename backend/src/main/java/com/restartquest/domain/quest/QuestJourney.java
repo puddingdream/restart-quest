@@ -133,6 +133,9 @@ public class QuestJourney {
         if (replacementSeed.estimatedMinutes() > originalQuest.getEstimatedMinutes()) {
             throw new IllegalArgumentException("대체 퀘스트는 원본보다 오래 걸릴 수 없습니다.");
         }
+        if (replacementSeed.difficulty().ordinal() > originalQuest.getDifficulty().ordinal()) {
+            throw new IllegalArgumentException("대체 퀘스트는 원본보다 어려울 수 없습니다.");
+        }
     }
 
     public UUID getId() {

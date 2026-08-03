@@ -27,4 +27,10 @@ export const authApi = {
       mock: ({ accessToken }) => authMockApi.me(accessToken),
     })
   },
+  logout() {
+    return apiRequest<void>('/auth/logout', {
+      method: 'POST',
+      mock: async () => undefined,
+    })
+  },
 }

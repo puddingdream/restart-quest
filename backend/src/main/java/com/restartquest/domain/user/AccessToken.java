@@ -8,7 +8,6 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.UUID;
 
 @Entity
@@ -31,17 +30,46 @@ public class AccessToken {
     @Column(nullable = false)
     private OffsetDateTime createdAt;
 
+    @Column(nullable = false)
+    private OffsetDateTime expiresAt;
+
+    private OffsetDateTime revokedAt;
+
     protected AccessToken() {
     }
 
-    private AccessToken(String tokenHash, UUID userId) {
+    private AccessToken(
+            String tokenHash,
+            UUID userId,
+            OffsetDateTime createdAt,
+            OffsetDateTime expiresAt
+    ) {
         this.tokenHash = tokenHash;
         this.userId = userId;
-        this.createdAt = OffsetDateTime.now(ZoneOffset.UTC);
+        this.createdAt = createdAt;
+        this.expiresAt = expiresAt;
     }
 
-    public static AccessToken issue(String tokenHash, UUID userId) {
-        return new AccessToken(tokenHash, userId);
+    public static AccessToken issue(
+            String tokenHash,
+            UUID userId,
+            OffsetDateTime createdAt,
+            OffsetDateTime expiresAt
+    ) {
+        if (!expiresAt.isAfter(createdAt)) {
+            throw new IllegalArgumentException("토큰 만료 시각은 발급 시각보다 이후여야 합니다.");
+        }
+        return new AccessToken(tokenHash, userId, createdAt, expiresAt);
+    }
+
+    public boolean isActiveAt(OffsetDateTime now) {
+        return revokedAt == null && now.isBefore(expiresAt);
+    }
+
+    public void revoke(OffsetDateTime now) {
+        if (revokedAt == null) {
+            revokedAt = now;
+        }
     }
 
     public UUID getId() {
@@ -54,5 +82,17 @@ public class AccessToken {
 
     public UUID getUserId() {
         return userId;
+    }
+
+    public OffsetDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public OffsetDateTime getExpiresAt() {
+        return expiresAt;
+    }
+
+    public OffsetDateTime getRevokedAt() {
+        return revokedAt;
     }
 }

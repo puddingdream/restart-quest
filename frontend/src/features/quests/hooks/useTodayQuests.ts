@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { isSessionExpired } from '../../../shared/api/ApiError'
+import { useAuth } from '../../auth/AuthContext'
 import {
   QUEST_OUTCOME_QUERY_KEYS,
   registerQuestOutcomeQueryRefresher,
@@ -15,6 +17,7 @@ import type {
 } from '../types'
 
 export function useTodayQuests() {
+  const { expireSession } = useAuth()
   const [plan, setPlan] = useState<DailyQuestResponse | null>(null)
   const [selectedEnergy, setSelectedEnergy] = useState<EnergyLevel | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
@@ -31,21 +34,33 @@ export function useTodayQuests() {
       setPlan(response.journeys.length > 0 ? response : null)
       setSelectedEnergy(response.energyLevel)
     } catch (loadError) {
+      if (isSessionExpired(loadError)) {
+        expireSession()
+        return
+      }
       setError(getQuestErrorFeedback(loadError, 'load'))
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [expireSession])
 
   useEffect(() => {
     void loadToday()
   }, [loadToday])
 
   const refreshToday = useCallback(async () => {
-    const response = await questApi.getToday()
-    setPlan(response.journeys.length > 0 ? response : null)
-    setSelectedEnergy(response.energyLevel)
-  }, [])
+    try {
+      const response = await questApi.getToday()
+      setPlan(response.journeys.length > 0 ? response : null)
+      setSelectedEnergy(response.energyLevel)
+    } catch (refreshError) {
+      if (isSessionExpired(refreshError)) {
+        expireSession()
+        return
+      }
+      throw refreshError
+    }
+  }, [expireSession])
 
   useEffect(
     () =>
@@ -70,12 +85,16 @@ export function useTodayQuests() {
     try {
       setPlan(await questApi.generate({ energyLevel: selectedEnergy }))
     } catch (generateError) {
+      if (isSessionExpired(generateError)) {
+        expireSession()
+        return
+      }
       setError(getQuestErrorFeedback(generateError, 'generate'))
     } finally {
       submissionPending.current = false
       setIsGenerating(false)
     }
-  }, [selectedEnergy])
+  }, [expireSession, selectedEnergy])
 
   function selectEnergy(energyLevel: EnergyLevel) {
     setSelectedEnergy(energyLevel)

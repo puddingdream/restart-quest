@@ -25,25 +25,10 @@ async function buildFrontendForHttp() {
     ['-p', 'tsconfig.app.json', '--pretty', 'false', '--incremental', 'false'],
     { cwd: frontendRoot },
   )
-  await runCommand(process.execPath, ['scripts/prepareBuild.mjs'], {
+  await runCommand(frontendTool('vite'), ['build'], {
     cwd: frontendRoot,
     env: { VITE_API_MODE: 'http' },
   })
-  await runCommand(
-    frontendTool('esbuild'),
-    [
-      'src/main.tsx',
-      '--bundle',
-      '--minify',
-      '--sourcemap',
-      '--format=esm',
-      '--outfile=dist/assets/index.js',
-      '--loader:.tsx=tsx',
-      '--loader:.ts=ts',
-      '--loader:.css=css',
-    ],
-    { cwd: frontendRoot, env: { VITE_API_MODE: 'http' } },
-  )
 }
 
 function fill(selector, value) {
@@ -151,7 +136,7 @@ async function runApiCoreFlow(backendBaseUrl) {
       },
     },
   )
-  assert.equal(redesigned.currentQuest.title, '첫 단계만 시작하기')
+  assert.equal(redesigned.currentQuest.title, '한 조각만 끝내기')
   assert.equal(redesigned.history.length, 1)
 
   const today = await apiRequest(backendBaseUrl, '/quests/today', { token })
@@ -164,7 +149,7 @@ async function runApiCoreFlow(backendBaseUrl) {
   assert.equal(dashboard.totalJourneys, 3)
   assert.equal(dashboard.completedJourneys, 1)
   assert.equal(dashboard.redesignCount, 1)
-  assert.equal(dashboard.recentRedesigns[0].replacementQuestTitle, '첫 단계만 시작하기')
+  assert.equal(dashboard.recentRedesigns[0].replacementQuestTitle, '한 조각만 끝내기')
 
   const duplicate = await fetch(
     `${backendBaseUrl}/api/v1/quests/${completedQuestId}/completion`,
@@ -178,8 +163,9 @@ async function verifyFrontendHttpBuild(frontendBaseUrl) {
   const htmlResponse = await fetch(`${frontendBaseUrl}/today`)
   assert.equal(htmlResponse.status, 200)
   const html = await htmlResponse.text()
-  assert.match(html, /name="restart-quest-api-mode" content="http"/)
-  const assetResponse = await fetch(`${frontendBaseUrl}/assets/index.js`)
+  const assetPath = html.match(/<script[^>]+src="([^"]+\.js)"/)?.[1]
+  assert.ok(assetPath, 'Vite가 생성한 JavaScript asset 경로가 필요합니다.')
+  const assetResponse = await fetch(`${frontendBaseUrl}${assetPath}`)
   assert.equal(assetResponse.status, 200)
   assert.ok((await assetResponse.arrayBuffer()).byteLength > 0)
 }
@@ -208,10 +194,18 @@ async function runBrowserFlow(page, baseUrl) {
   await page.waitFor("location.pathname === '/today' && document.querySelector('input[name=energyLevel]')", '오늘 퀘스트 이동')
   await page.evaluate("document.querySelector('input[name=energyLevel][value=LOW]').click()")
   await page.evaluate("document.querySelector('.energy-form').requestSubmit()")
-  await page.waitFor("document.querySelectorAll('.quest-card').length === 3", '세 퀘스트 생성')
+  await page.waitFor(
+    "document.querySelectorAll('.quest-card').length === 3 && [...document.querySelectorAll('.quest-card')[0].querySelectorAll('button')].some((button) => button.textContent.includes('완료했어요'))",
+    '세 퀘스트 생성',
+  )
   assert.equal(await page.evaluate("[...document.querySelectorAll('.quest-card h2')].every((node) => node.textContent.trim() && !node.textContent.includes('undefined'))"), true)
 
-  await page.evaluate("document.querySelectorAll('.quest-card')[0].querySelector('.button-primary').click()")
+  await page.evaluate(`(() => {
+    const button = [...document.querySelectorAll('.quest-card')[0].querySelectorAll('button')]
+      .find((candidate) => candidate.textContent.includes('완료했어요'));
+    if (!button) throw new Error('첫 퀘스트 완료 버튼을 찾지 못했습니다.');
+    button.click();
+  })()`)
   await page.waitFor("document.querySelectorAll('.quest-card')[0].classList.contains('quest-card-completed')", '첫 여정 완료')
 
   await page.evaluate("[...document.querySelectorAll('.quest-card')[1].querySelectorAll('button')].find((button) => button.textContent.includes('더 작게')).click()")
@@ -219,7 +213,7 @@ async function runBrowserFlow(page, baseUrl) {
   await page.evaluate("document.querySelector('input[name=reasonCode][value=TASK_TOO_LARGE]').click()")
   await page.evaluate(fill('[role=dialog] textarea', '오늘은 첫 단계만 이어가고 싶어요.'))
   await page.evaluate("document.querySelector('[role=dialog] form').requestSubmit()")
-  await page.waitFor("!document.querySelector('[role=dialog]') && document.querySelectorAll('.quest-card')[1].querySelector('h2').textContent.includes('첫 단계만 시작하기')", '이유 기반 재설계')
+  await page.waitFor("!document.querySelector('[role=dialog]') && document.querySelectorAll('.quest-card')[1].querySelector('h2').textContent.includes('한 조각만 끝내기')", '이유 기반 재설계')
 
   await page.reload()
   await page.waitFor("document.querySelectorAll('.quest-card').length === 3 && document.querySelectorAll('.quest-card')[1].querySelector('details')", 'today 새로고침 일치')
@@ -239,7 +233,7 @@ async function runBrowserFlow(page, baseUrl) {
   await page.evaluate("document.querySelector('a[href=\"/dashboard\"]').click()")
   await page.waitFor("location.pathname === '/dashboard' && document.querySelector('#dashboard-title')?.textContent.includes('오늘 3개 중 1개')", '대시보드 반영')
   assert.deepEqual(await page.evaluate("[...document.querySelectorAll('.dashboard-counts dd')].map((node) => node.textContent.trim())"), ['3', '1', '1'])
-  assert.equal(await page.evaluate("document.querySelector('.redesign-record-list h3')?.textContent.includes('첫 단계만 시작하기')"), true)
+  assert.equal(await page.evaluate("document.querySelector('.redesign-record-list h3')?.textContent.includes('한 조각만 끝내기')"), true)
 
   await page.reload()
   await page.waitFor("document.querySelector('#dashboard-title')?.textContent.includes('오늘 3개 중 1개') && document.querySelector('.redesign-record-list h3')", 'dashboard 새로고침 일치')
@@ -247,7 +241,10 @@ async function runBrowserFlow(page, baseUrl) {
 
   await page.setViewport(390, 844, true)
   await page.evaluate("document.querySelector('a[href=\"/today\"]').click()")
-  await page.waitFor("location.pathname === '/today' && document.querySelectorAll('.quest-card').length === 3", '모바일 today')
+  await page.waitFor(
+    "location.pathname === '/today' && document.querySelectorAll('.quest-card').length === 3 && [...document.querySelectorAll('.quest-card')[1].querySelectorAll('button')].some((button) => button.textContent.includes('더 작게'))",
+    '모바일 today',
+  )
   await page.evaluate("[...document.querySelectorAll('.quest-card')[1].querySelectorAll('button')].find((button) => button.textContent.includes('더 작게')).click()")
   await page.waitFor("document.querySelector('[role=dialog]')", '모바일 재설계 dialog')
   await page.screenshot(path.join(resultDirectory, 'core-flow-redesign-mobile.png'))
@@ -278,7 +275,15 @@ try {
     console.log('Core flow E2E passed in browser: auth, onboarding, 3 journeys, completion, redesign, refresh consistency, typed errors, desktop/mobile screenshots')
   }
 } finally {
-  await browser?.stop()
-  await frontend?.stop()
-  await backend?.stop()
+  const cleanupResults = await Promise.allSettled([
+    browser?.stop(),
+    frontend?.stop(),
+    backend?.stop(),
+  ])
+  for (const result of cleanupResults) {
+    if (result.status === 'rejected') {
+      console.error(`E2E 자원 정리 실패: ${result.reason}`)
+      process.exitCode = 1
+    }
+  }
 }

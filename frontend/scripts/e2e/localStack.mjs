@@ -57,6 +57,39 @@ async function waitForBackend(baseUrl, child) {
   throw new Error('backend 준비 시간이 초과되었습니다.')
 }
 
+function waitForExit(child, timeoutMs) {
+  if (child.exitCode !== null) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      child.off('exit', onExit)
+      resolve(false)
+    }, timeoutMs)
+    const onExit = () => {
+      clearTimeout(timeout)
+      resolve(true)
+    }
+    child.once('exit', onExit)
+  })
+}
+
+function terminateProcessTree(child) {
+  if (child.exitCode !== null || !child.pid) return Promise.resolve()
+  if (process.platform !== 'win32') {
+    child.kill('SIGKILL')
+    return Promise.resolve()
+  }
+  return new Promise((resolve) => {
+    const killer = spawn('taskkill.exe', [
+      '/pid',
+      String(child.pid),
+      '/t',
+      '/f',
+    ], { stdio: 'ignore' })
+    killer.once('error', resolve)
+    killer.once('exit', resolve)
+  })
+}
+
 export async function startBackend(repoRoot) {
   const backendRoot = path.join(repoRoot, 'backend')
   const wrapper = path.join(backendRoot, process.platform === 'win32' ? 'gradlew.bat' : 'gradlew')
@@ -87,11 +120,19 @@ export async function startBackend(repoRoot) {
     baseUrl,
     stop: async () => {
       if (child.exitCode !== null) return
+      if (process.platform === 'win32') {
+        await terminateProcessTree(child)
+        if (!(await waitForExit(child, 2_000))) {
+          throw new Error(`backend 테스트 프로세스(PID ${child.pid})를 종료하지 못했습니다.`)
+        }
+        return
+      }
       child.kill()
-      await new Promise((resolve) => {
-        child.once('exit', resolve)
-        setTimeout(resolve, 5_000)
-      })
+      if (await waitForExit(child, 3_000)) return
+      await terminateProcessTree(child)
+      if (!(await waitForExit(child, 2_000))) {
+        throw new Error(`backend 테스트 프로세스(PID ${child.pid})를 종료하지 못했습니다.`)
+      }
     },
   }
 }

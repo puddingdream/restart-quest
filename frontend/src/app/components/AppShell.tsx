@@ -13,7 +13,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <nav aria-label="주요 메뉴">
           <AppLink to="/today">오늘의 퀘스트</AppLink>
           <AppLink to="/dashboard">대시보드</AppLink>
-          <button className="text-button" onClick={logout}>
+          <button className="text-button" onClick={() => void logout()}>
             로그아웃
           </button>
         </nav>

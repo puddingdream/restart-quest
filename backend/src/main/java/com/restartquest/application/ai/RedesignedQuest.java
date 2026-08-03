@@ -24,6 +24,9 @@ public final class RedesignedQuest {
         if (replacementQuest.estimatedMinutes() > originalQuest.estimatedMinutes()) {
             throw new IllegalArgumentException("대체 퀘스트는 원본보다 오래 걸릴 수 없습니다.");
         }
+        if (replacementQuest.difficulty().ordinal() > originalQuest.difficulty().ordinal()) {
+            throw new IllegalArgumentException("대체 퀘스트는 원본보다 어려울 수 없습니다.");
+        }
         return new RedesignedQuest(replacementQuest);
     }
 

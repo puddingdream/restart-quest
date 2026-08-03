@@ -8,4 +8,6 @@ public interface AccessTokenManager {
     String issue(UUID userId);
 
     Optional<UUID> findUserId(String rawToken);
+
+    void revoke(String rawToken);
 }

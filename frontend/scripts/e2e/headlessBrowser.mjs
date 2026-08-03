@@ -91,7 +91,13 @@ class CdpPage {
       awaitPromise: true,
       returnByValue: true,
     })
-    if (result.exceptionDetails) throw new Error('브라우저 평가 중 오류가 발생했습니다.')
+    if (result.exceptionDetails) {
+      const description =
+        result.exceptionDetails.exception?.description ??
+        result.exceptionDetails.text ??
+        '알 수 없는 오류'
+      throw new Error(`브라우저 평가 중 오류가 발생했습니다: ${description}`)
+    }
     return result.result.value
   }
 
@@ -169,8 +175,18 @@ export async function launchBrowser() {
       page.close()
       if (child.exitCode === null) child.kill()
       await new Promise((resolve) => {
-        child.once('exit', resolve)
-        setTimeout(resolve, 3_000)
+        if (child.exitCode !== null) {
+          resolve()
+          return
+        }
+        const timeout = setTimeout(() => {
+          if (child.exitCode === null) child.kill('SIGKILL')
+        }, 2_000)
+        child.once('exit', () => {
+          clearTimeout(timeout)
+          resolve()
+        })
+        setTimeout(resolve, 4_000)
       })
       await rm(profileDirectory, { recursive: true, force: true })
     },

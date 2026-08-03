@@ -68,6 +68,7 @@ public record QuestDraft(
         if (normalized.length() > maximumLength) {
             throw new IllegalArgumentException(field + "가 허용 길이를 초과했습니다.");
         }
+        QuestContentPolicy.validate(normalized, field);
         return normalized;
     }
 }

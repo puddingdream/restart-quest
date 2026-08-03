@@ -6,10 +6,12 @@ import com.restartquest.presentation.auth.dto.AuthResponse;
 import com.restartquest.presentation.auth.dto.LoginRequest;
 import com.restartquest.presentation.auth.dto.SignupRequest;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -32,5 +34,21 @@ public class AuthController {
     @PostMapping("/login")
     public AuthResponse login(@Valid @RequestBody LoginRequest request) {
         return AuthResponse.from(authService.login(request.email(), request.password()));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization
+    ) {
+        authService.logout(bearerToken(authorization));
+        return ResponseEntity.noContent().build();
+    }
+
+    private static String bearerToken(String authorization) {
+        String prefix = "Bearer ";
+        if (authorization == null || !authorization.startsWith(prefix)) {
+            return "";
+        }
+        return authorization.substring(prefix.length());
     }
 }

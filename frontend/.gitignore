@@ -3,3 +3,4 @@ dist/
 .test-dist/
 .build-cache/
 .npm-cache*/
+test-results/

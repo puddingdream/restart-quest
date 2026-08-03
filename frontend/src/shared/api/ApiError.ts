@@ -40,3 +40,7 @@ export function getApiErrorMessage(error: unknown): string {
 
   return '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'
 }
+
+export function isSessionExpired(error: unknown): boolean {
+  return error instanceof ApiError && [401, 403].includes(error.status)
+}

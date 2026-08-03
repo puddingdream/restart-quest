@@ -57,16 +57,71 @@ public class DeterministicQuestAiClient implements QuestAiClient {
     @Override
     public RedesignedQuest redesignQuest(QuestRedesignRequest request) {
         QuestDraft original = request.originalQuest();
-        int minutes = Math.max(5, Math.min(10, original.estimatedMinutes()));
+        RedesignStrategy strategy = strategy(request, original);
+        int minutes = Math.max(5, Math.min(strategy.maximumMinutes(), original.estimatedMinutes()));
         QuestDraft replacement = draft(
-                "첫 단계만 시작하기",
-                original.title() + "의 범위를 줄여 첫 단계만 진행합니다.",
-                "첫 단계 한 가지를 마칩니다.",
-                List.of("지금 가능한 첫 단계 하나만 실행하기"),
+                strategy.title(),
+                strategy.description(),
+                strategy.completionCriteria(),
+                strategy.steps(),
                 original.category(),
                 minutes
         );
         return RedesignedQuest.validate(replacement, request);
+    }
+
+    private static RedesignStrategy strategy(QuestRedesignRequest request, QuestDraft original) {
+        return switch (request.reasonCode()) {
+            case TIME_SHORTAGE -> new RedesignStrategy(
+                    "5분만 시작하기",
+                    original.title() + "에서 남은 시간 안에 가능한 한 단계만 진행합니다.",
+                    "가장 짧은 단계 하나를 5분 동안 실행합니다.",
+                    List.of("타이머를 5분으로 맞추기", "가장 짧은 단계 하나 실행하기"),
+                    5
+            );
+            case TASK_TOO_LARGE -> new RedesignStrategy(
+                    "한 조각만 끝내기",
+                    original.title() + "의 전체 범위를 작은 결과 하나로 줄입니다.",
+                    "작은 결과 한 개를 저장합니다.",
+                    List.of("해야 할 일을 세 조각으로 나누기", "첫 조각만 실행하기"),
+                    10
+            );
+            case START_POINT_UNCLEAR -> new RedesignStrategy(
+                    "시작점만 정하기",
+                    original.title() + "을 시작할 화면과 첫 행동만 정합니다.",
+                    "시작할 화면을 열고 첫 행동을 한 줄 적습니다.",
+                    List.of("필요한 화면 하나 열기", "첫 행동 한 줄 적기"),
+                    10
+            );
+            case MATERIALS_MISSING -> new RedesignStrategy(
+                    "준비물 하나 찾기",
+                    original.title() + "에 필요한 자료를 모두 모으지 않고 한 개만 찾습니다.",
+                    "필요한 자료 한 개의 위치를 저장합니다.",
+                    List.of("필요한 자료 목록 적기", "가장 찾기 쉬운 자료 하나 저장하기"),
+                    10
+            );
+            case LOW_ENERGY -> new RedesignStrategy(
+                    "가볍게 열어보기",
+                    original.title() + "과 관련된 자료를 열고 한 곳만 표시합니다.",
+                    "관련 자료를 열고 한 곳을 표시합니다.",
+                    List.of("관련 자료 열기", "눈에 들어오는 한 곳 표시하기"),
+                    5
+            );
+            case TASK_NOT_RELEVANT -> new RedesignStrategy(
+                    "지금 필요한 행동 고르기",
+                    "현재 목표와 가까운 행동 후보를 하나만 고릅니다.",
+                    "지금 필요한 행동 한 개를 메모합니다.",
+                    List.of("이번 주 목표 한 줄 확인하기", "가장 가까운 행동 하나 고르기"),
+                    10
+            );
+            case OTHER -> new RedesignStrategy(
+                    "첫 단계만 시작하기",
+                    original.title() + "의 범위를 줄여 첫 단계만 진행합니다.",
+                    "첫 단계 한 가지를 마칩니다.",
+                    List.of("지금 가능한 첫 단계 하나만 실행하기"),
+                    10
+            );
+        };
     }
 
     private static int generationMinutes(EnergyLevel energyLevel) {
@@ -94,5 +149,14 @@ public class DeterministicQuestAiClient implements QuestAiClient {
                 QuestDifficulty.EASY,
                 estimatedMinutes
         );
+    }
+
+    private record RedesignStrategy(
+            String title,
+            String description,
+            String completionCriteria,
+            List<String> steps,
+            int maximumMinutes
+    ) {
     }
 }

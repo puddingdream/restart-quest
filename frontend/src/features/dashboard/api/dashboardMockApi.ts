@@ -1,4 +1,5 @@
 import { requireMockUser } from '../../auth/api/authMockApi'
+import { readStoredDailyQuest } from '../../quests/api/questMockStore'
 import type {
   DashboardQuestSummary,
   TodayDashboardResponse,
@@ -48,6 +49,62 @@ export const dashboardMockApi = {
   async getToday(accessToken: string | null): Promise<TodayDashboardResponse> {
     const user = requireMockUser(accessToken)
     if (user.email === 'ready@example.com') return createDemoDashboard()
+
+    const stored = readStoredDailyQuest()
+    if (stored?.userId === user.id && stored.plan.date === getSeoulDate()) {
+      const completedJourneys = stored.plan.journeys.filter(
+        ({ status }) => status === 'COMPLETED',
+      ).length
+      const activeJourneys = stored.plan.journeys.filter(
+        ({ status }) => status === 'ACTIVE',
+      )
+      const nextJourney = activeJourneys[0]
+      const redesigns = stored.redesigns ?? []
+
+      return {
+        date: stored.plan.date,
+        totalJourneys: stored.plan.journeys.length,
+        completedJourneys,
+        activeJourneys: activeJourneys.length,
+        redesignCount: redesigns.length,
+        progressPercent:
+          stored.plan.journeys.length === 0
+            ? 0
+            : Math.round(
+                (completedJourneys / stored.plan.journeys.length) * 100,
+              ),
+        nextQuest: nextJourney
+          ? {
+              journeyId: nextJourney.journeyId,
+              questId: nextJourney.currentQuest.id,
+              title: nextJourney.currentQuest.title,
+              category: nextJourney.currentQuest.category,
+              estimatedMinutes: nextJourney.currentQuest.estimatedMinutes,
+            }
+          : null,
+        recentRedesigns: redesigns
+          .slice()
+          .reverse()
+          .slice(0, 5)
+          .map((redesign) => {
+            const journey = stored.plan.journeys.find(
+              ({ journeyId }) => journeyId === redesign.journeyId,
+            )
+            const original = journey?.history.find(
+              ({ id }) => id === redesign.originalQuestId,
+            )
+            return {
+              redesignId: redesign.id,
+              journeyId: redesign.journeyId,
+              originalQuestTitle: original?.title ?? '이전 퀘스트',
+              replacementQuestTitle:
+                journey?.currentQuest.title ?? '더 쉬운 퀘스트',
+              reasonCode: redesign.reasonCode,
+              createdAt: redesign.createdAt,
+            }
+          }),
+      }
+    }
 
     return {
       date: getSeoulDate(),

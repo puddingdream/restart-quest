@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getApiErrorMessage } from '../../../shared/api/ApiError'
+import {
+  getApiErrorMessage,
+  isSessionExpired,
+} from '../../../shared/api/ApiError'
+import { useAuth } from '../../auth/AuthContext'
 import {
   QUEST_OUTCOME_QUERY_KEYS,
   registerQuestOutcomeQueryRefresher,
@@ -14,6 +18,7 @@ const INITIAL_STATE: TodayDashboardState = {
 }
 
 export function useTodayDashboard() {
+  const { expireSession } = useAuth()
   const [state, setState] = useState<TodayDashboardState>(INITIAL_STATE)
   const requestIdRef = useRef(0)
 
@@ -27,6 +32,10 @@ export function useTodayDashboard() {
         setState({ status: 'success', data, error: null })
       }
     } catch (error) {
+      if (isSessionExpired(error)) {
+        expireSession()
+        return
+      }
       if (requestId === requestIdRef.current) {
         setState({
           status: 'error',
@@ -35,7 +44,7 @@ export function useTodayDashboard() {
         })
       }
     }
-  }, [])
+  }, [expireSession])
 
   useEffect(() => {
     void load()

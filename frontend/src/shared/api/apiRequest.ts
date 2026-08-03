@@ -3,6 +3,11 @@ import { getAccessToken } from '../auth/sessionToken'
 
 const API_BASE_PATH = '/api/v1'
 
+function apiUrl(path: string): string {
+  const configuredBase = import.meta.env?.VITE_API_BASE_URL?.replace(/\/$/, '')
+  return `${configuredBase ?? ''}${API_BASE_PATH}${path}`
+}
+
 interface MockRequestContext {
   accessToken: string | null
 }
@@ -80,7 +85,7 @@ export async function apiRequest<T>(
     return options.mock({ accessToken })
   }
 
-  const response = await fetch(`${API_BASE_PATH}${path}`, {
+  const response = await fetch(apiUrl(path), {
     method,
     headers: {
       Accept: 'application/json',
@@ -91,5 +96,6 @@ export async function apiRequest<T>(
   })
 
   if (!response.ok) throw await toApiError(response)
+  if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }

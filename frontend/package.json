@@ -4,10 +4,11 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && node scripts/prepareBuild.mjs && .\\node_modules\\@esbuild\\win32-x64\\esbuild.exe src/main.tsx --bundle --minify --sourcemap --format=esm --outfile=dist/assets/index.js --loader:.tsx=tsx --loader:.ts=ts --loader:.css=css",
+    "build": "tsc -b && vite build",
     "lint": "eslint . --max-warnings=0",
     "smoke": "node scripts/smoke.mjs",
-    "test": "tsc -p tsconfig.test.json && node --test --test-isolation=none .test-dist/**/*.test.js",
+    "e2e": "node scripts/e2e.mjs",
+    "test": "node scripts/clean-test-output.mjs && tsc -p tsconfig.test.json && node --test --test-isolation=none .test-dist/**/*.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

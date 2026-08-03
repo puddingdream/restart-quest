@@ -5,6 +5,9 @@ import {
   authMockApi,
   clearAuthMockSession,
 } from '../../auth/api/authMockApi'
+import { onboardingMockApi } from '../../onboarding/api/onboardingMockApi'
+import { clearQuestMockSession, questMockApi } from '../../quests/api/questMockApi'
+import { questOutcomeMockApi } from '../../quests/api/questOutcomeMockApi'
 import { dashboardMockApi } from './dashboardMockApi'
 
 class MemoryStorage {
@@ -79,5 +82,51 @@ test('canonical feature mock은 인증되지 않은 조회를 구분한다', asy
     dashboardMockApi.getToday(null),
     (error: unknown) =>
       error instanceof ApiError && error.code === 'SESSION_EXPIRED',
+  )
+})
+
+test('완료와 실패 후 재설계 기록을 실제 mock 대시보드 집계에 반영한다', async () => {
+  clearAuthMockSession()
+  clearQuestMockSession()
+  const auth = await authMockApi.signup({
+    email: 'dashboard-flow@example.com',
+    password: 'password123',
+    name: '대시보드 사용자',
+  })
+  await onboardingMockApi.upsert(
+    {
+      desiredJob: '백엔드 개발자',
+      desiredWorkType: 'FULL_TIME',
+      careerGapMonths: 8,
+      hasResume: true,
+      interviewExperience: 'LIMITED',
+    },
+    auth.accessToken,
+  )
+  const plan = await questMockApi.generate(
+    { energyLevel: 'LOW' },
+    auth.accessToken,
+  )
+
+  await questOutcomeMockApi.complete(
+    plan.journeys[0].currentQuest.id,
+    auth.accessToken,
+  )
+  const redesigned = await questOutcomeMockApi.redesign(
+    plan.journeys[1].currentQuest.id,
+    { reasonCode: 'TIME_SHORTAGE' },
+    auth.accessToken,
+  )
+
+  const dashboard = await dashboardMockApi.getToday(auth.accessToken)
+  assert.equal(dashboard.totalJourneys, 3)
+  assert.equal(dashboard.completedJourneys, 1)
+  assert.equal(dashboard.activeJourneys, 2)
+  assert.equal(dashboard.progressPercent, 33)
+  assert.equal(dashboard.redesignCount, 1)
+  assert.equal(dashboard.recentRedesigns[0]?.reasonCode, 'TIME_SHORTAGE')
+  assert.equal(
+    dashboard.recentRedesigns[0]?.replacementQuestTitle,
+    redesigned.journey.currentQuest.title,
   )
 })

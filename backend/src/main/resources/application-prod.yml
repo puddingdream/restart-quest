@@ -1,0 +1,16 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+restartquest:
+  ai:
+    provider: ${AI_PROVIDER:deterministic}
+    runtime:
+      base-url: ${AI_PROVIDER_BASE_URL:}
+      api-key: ${AI_PROVIDER_API_KEY:}

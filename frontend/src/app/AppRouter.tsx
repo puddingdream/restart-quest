@@ -1,9 +1,10 @@
 import { useEffect } from 'react'
 import { AuthPage } from '../features/auth/pages/AuthPage'
 import { useAuth } from '../features/auth/AuthContext'
+import { DashboardPage } from '../features/dashboard/pages/DashboardPage'
 import { OnboardingPage } from '../features/onboarding/pages/OnboardingPage'
+import { TodayPage } from '../features/quests/pages/TodayPage'
 import { LoadingScreen } from './components/LoadingScreen'
-import { ProtectedRoutePlaceholder } from './components/ProtectedRoutePlaceholder'
 import { resolveRoute, useAppNavigation, type ViewRoute } from './routing'
 
 function renderRoute(route: ViewRoute) {
@@ -15,14 +16,14 @@ function renderRoute(route: ViewRoute) {
     case '/onboarding':
       return <OnboardingPage />
     case '/today':
-      return <ProtectedRoutePlaceholder route="today" />
+      return <TodayPage />
     case '/dashboard':
-      return <ProtectedRoutePlaceholder route="dashboard" />
+      return <DashboardPage />
   }
 }
 
 export function AppRouter() {
-  const { status, user } = useAuth()
+  const { status, user, retrySession } = useAuth()
   const { pathname, navigate } = useAppNavigation()
   const decision = status === 'checking' ? null : resolveRoute(pathname, user)
 
@@ -34,6 +35,19 @@ export function AppRouter() {
 
   if (status === 'checking') {
     return <LoadingScreen label="세션을 안전하게 확인하고 있어요." />
+  }
+  if (status === 'unavailable') {
+    return (
+      <main className="page-container" role="alert">
+        <section className="surface-card">
+          <h1>서버에 잠시 연결할 수 없어요</h1>
+          <p>로그인 정보는 그대로 보관했습니다. 연결을 확인한 뒤 다시 시도해 주세요.</p>
+          <button className="button button-primary" onClick={retrySession}>
+            다시 연결하기
+          </button>
+        </section>
+      </main>
+    )
   }
   if (!decision || decision.kind === 'redirect') {
     return <LoadingScreen label="알맞은 시작 화면으로 이동하고 있어요." />

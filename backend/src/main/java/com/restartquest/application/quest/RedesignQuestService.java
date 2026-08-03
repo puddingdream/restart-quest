@@ -21,7 +21,6 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class RedesignQuestService {
@@ -40,7 +39,6 @@ public class RedesignQuestService {
         this.questAiClient = questAiClient;
     }
 
-    @Transactional
     public RedesignQuestResult redesign(
             UUID userId,
             UUID questId,

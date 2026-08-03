@@ -122,6 +122,28 @@ class UserContextApiTest {
     }
 
     @Test
+    void rejectsPasswordOverBcryptByteLimitAndRevokesTokenOnLogout() throws Exception {
+        String multibytePassword = "가".repeat(25);
+        mockMvc.perform(post("/api/v1/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"long-password@example.com","password":"%s","name":"테스트 사용자"}
+                                """.formatted(multibytePassword)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+
+        String accessToken = signupAndGetToken("logout@example.com");
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/users/me")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
     void onboardingUpsertAndReadKeepCompletedFlagConsistent() throws Exception {
         String accessToken = signupAndGetToken("onboarding@example.com");
 

@@ -1,15 +1,22 @@
 spring:
   application:
     name: restart-quest-backend
-  datasource:
-    url: jdbc:h2:mem:restartquest;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
-    username: sa
-    password:
+  profiles:
+    default: local
+  http:
+    clients:
+      connect-timeout: 3s
+      read-timeout: 10s
   jpa:
-    hibernate:
-      ddl-auto: create-drop
     open-in-view: false
 server:
   error:
     include-message: never
     include-stacktrace: never
+restartquest:
+  ai:
+    provider: deterministic
+  auth:
+    token-ttl: PT24H
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}

@@ -34,6 +34,13 @@ export function OnboardingPage() {
             <span className="spinner spinner-dark" aria-hidden="true" />
             <p>저장된 시작점을 확인하고 있어요.</p>
           </div>
+        ) : form.isLoadBlocked ? (
+          <div className="alert alert-error" role="alert">
+            <p>{form.apiError}</p>
+            <button className="button" onClick={form.retryLoad}>
+              저장된 정보 다시 불러오기
+            </button>
+          </div>
         ) : (
           <OnboardingForm
             values={form.values}

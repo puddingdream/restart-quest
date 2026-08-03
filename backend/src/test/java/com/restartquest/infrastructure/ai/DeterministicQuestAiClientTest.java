@@ -52,6 +52,24 @@ class DeterministicQuestAiClientTest {
         assertThat(result.replacementQuest().steps()).hasSizeBetween(1, 3);
     }
 
+    @Test
+    void redesignUsesFailureReasonToChooseDifferentRecoveryAction() {
+        QuestDraft original = draft("면접 답변 정리", QuestCategory.INTERVIEW, 12);
+
+        RedesignedQuest timeShortage = client.redesignQuest(new QuestRedesignRequest(
+                personalization(), original, QuestRedesignReasonCode.TIME_SHORTAGE, null
+        ));
+        RedesignedQuest missingMaterials = client.redesignQuest(new QuestRedesignRequest(
+                personalization(), original, QuestRedesignReasonCode.MATERIALS_MISSING, null
+        ));
+
+        assertThat(timeShortage.replacementQuest().title())
+                .isNotEqualTo(missingMaterials.replacementQuest().title());
+        assertThat(timeShortage.replacementQuest().estimatedMinutes()).isEqualTo(5);
+        assertThat(missingMaterials.replacementQuest().steps())
+                .contains("가장 찾기 쉬운 자료 하나 저장하기");
+    }
+
     private static QuestPersonalization personalization() {
         return new QuestPersonalization(
                 "백엔드 개발자",

@@ -11,7 +11,7 @@ import type {
 
 const MOCK_PROFILE_KEY = 'restart-quest.mock-profile'
 
-function readMockProfile(): OnboardingProfile | null {
+export function readMockProfile(): OnboardingProfile | null {
   const value = window.sessionStorage.getItem(MOCK_PROFILE_KEY)
   if (!value) return null
 

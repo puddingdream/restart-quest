@@ -1,4 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
+import { isSessionExpired } from '../../../shared/api/ApiError'
+import { useAuth } from '../../auth/AuthContext'
 import { questApi } from '../api/questApi'
 import { refreshQuestOutcomeQueries } from '../questOutcomeQueryRefresh'
 import {
@@ -17,6 +19,7 @@ interface UseQuestOutcomesOptions {
 export function useQuestOutcomes({
   onJourneyUpdated,
 }: UseQuestOutcomesOptions) {
+  const { expireSession } = useAuth()
   const pendingQuestIds = useRef(new Set<string>())
   const [pendingIds, setPendingIds] = useState<string[]>([])
   const [errors, setErrors] = useState<
@@ -52,6 +55,10 @@ export function useQuestOutcomes({
         await refreshQuestOutcomeQueries()
         return true
       } catch (error) {
+        if (isSessionExpired(error)) {
+          expireSession()
+          return false
+        }
         setErrors((current) => ({
           ...current,
           [quest.id]: getQuestOutcomeErrorFeedback(error, 'completion'),
@@ -61,7 +68,7 @@ export function useQuestOutcomes({
         endSubmission(quest.id)
       }
     },
-    [beginSubmission, endSubmission, onJourneyUpdated],
+    [beginSubmission, endSubmission, expireSession, onJourneyUpdated],
   )
 
   const redesign = useCallback(
@@ -80,6 +87,10 @@ export function useQuestOutcomes({
         await refreshQuestOutcomeQueries()
         return true
       } catch (error) {
+        if (isSessionExpired(error)) {
+          expireSession()
+          return false
+        }
         setErrors((current) => ({
           ...current,
           [quest.id]: getQuestOutcomeErrorFeedback(error, 'redesign'),
@@ -89,7 +100,7 @@ export function useQuestOutcomes({
         endSubmission(quest.id)
       }
     },
-    [beginSubmission, endSubmission, onJourneyUpdated],
+    [beginSubmission, endSubmission, expireSession, onJourneyUpdated],
   )
 
   const clearError = useCallback((questId: string) => {

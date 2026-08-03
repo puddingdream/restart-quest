@@ -314,3 +314,21 @@ binding이 다르면 아래 순서에서 뒤에 오는 APPLY 계약을 최종 �
 `온보딩 -> 오늘 퀘스트 생성 -> 완료 또는 실패 이유 입력 -> 더 쉬운 퀘스트 재설계 -> 대시보드 반영`
 흐름을 검증한다. 상담·감시·의지 평가 의미를 추가하거나 완료 상세 배열처럼 producer가 제공하지 않는
 필드를 consumer가 합성하지 않는다.
+
+## 10. 최종 통합 경계와 검증
+
+PR 59의 `TASK-002-CONTRACT-e79f8d050e` 통합 브랜치는 위 worker 결과를 배포 가능한 하나의
+MVP로 결합하는 최종 integration owner다. 이 단계에서는 기존 package 소유권을 변경하지 않고,
+producer/consumer 계약 충돌과 실제 실행 환경에서만 드러난 결함을 다음 범위에서 보정한다.
+
+- frontend: 실제 `/today`, `/dashboard` route 연결, mock 상태 일관성, HTTP API base/proxy,
+  인증 만료와 일시 장애 구분, 온보딩 로드 실패 차단, Windows 브라우저 E2E 안정화
+- backend: access token 만료/폐기, UTF-8 비밀번호 길이 검증, 재설계 난이도·문구 불변식,
+  AI 호출과 DB 잠금 경계 분리, CORS, runtime provider, PostgreSQL/Flyway 운영 프로필
+- repository: 로컬 DB·빌드·E2E 산출물 제외, 실행 및 검증 절차 문서화
+
+최종 완료 증거는 backend 전체 테스트, frontend lint/test/build, 실제 Spring Boot와 브라우저를
+연결한 E2E다. E2E는 세 여정 생성, 완료 1건, 이유별 재설계 1건, 새로고침 후 상태 유지,
+대시보드 집계와 인증 만료를 검증하고 데스크톱/모바일 화면을 렌더링한다. 이 통합 검증이 통과하면
+3~8절의 원본 residual mismatch는 과거 worker head 감사 기록으로만 남고 MVP publish blocker로
+해석하지 않는다.

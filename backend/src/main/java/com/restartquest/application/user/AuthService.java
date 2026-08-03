@@ -5,6 +5,7 @@ import com.restartquest.application.port.AccessTokenManager;
 import com.restartquest.application.port.PasswordHasher;
 import com.restartquest.application.port.UserStore;
 import com.restartquest.domain.user.User;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -30,6 +31,7 @@ public class AuthService {
 
     @Transactional
     public AuthResult signup(String email, String password, String name) {
+        validatePasswordBytes(password);
         String normalizedEmail = normalizeEmail(email);
         if (userStore.existsByEmail(normalizedEmail)) {
             throw new AppException(HttpStatus.CONFLICT, "EMAIL_ALREADY_EXISTS", "이미 가입된 이메일입니다.");
@@ -47,12 +49,27 @@ public class AuthService {
 
     @Transactional
     public AuthResult login(String email, String password) {
+        validatePasswordBytes(password);
         User user = userStore.findByEmail(normalizeEmail(email))
                 .orElseThrow(AuthService::invalidCredentials);
         if (!passwordHasher.matches(password, user.getPasswordHash())) {
             throw invalidCredentials();
         }
         return new AuthResult(accessTokenManager.issue(user.getId()), user);
+    }
+
+    public void logout(String rawToken) {
+        accessTokenManager.revoke(rawToken);
+    }
+
+    private static void validatePasswordBytes(String password) {
+        if (password.getBytes(StandardCharsets.UTF_8).length > 72) {
+            throw new AppException(
+                    HttpStatus.BAD_REQUEST,
+                    "INVALID_INPUT",
+                    "비밀번호는 UTF-8 기준 72바이트 이하여야 합니다."
+            );
+        }
     }
 
     private static String normalizeEmail(String email) {

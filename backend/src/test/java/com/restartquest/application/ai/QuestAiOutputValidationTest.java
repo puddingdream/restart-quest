@@ -52,6 +52,14 @@ class QuestAiOutputValidationTest {
                 null, QuestDifficulty.EASY, 10
         )).isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> new QuestDraft(
+                "의지 점수 확인", "사용자의 구직 의지 평가를 진행합니다.", "점수를 저장합니다.", List.of("평가하기"),
+                QuestCategory.ROUTINE, QuestDifficulty.EASY, 10
+        )).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new QuestDraft(
+                "Motivation score", "Check whether the user needs therapy.", "Save the diagnosis.",
+                List.of("Evaluate the user"), QuestCategory.ROUTINE, QuestDifficulty.EASY, 10
+        )).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new QuestDraft(
                 "제목", "설명", "완료 기준", List.of("단계"),
                 QuestCategory.RESUME, null, 10
         )).isInstanceOf(NullPointerException.class);
@@ -76,6 +84,12 @@ class QuestAiOutputValidationTest {
         )).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> RedesignedQuest.validate(
                 draft("범위 초과", QuestCategory.INTERVIEW, 16, List.of("한 단계")), request
+        )).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> RedesignedQuest.validate(
+                new QuestDraft(
+                        "난이도 상승", "설명", "완료 기준", List.of("한 단계"),
+                        QuestCategory.INTERVIEW, QuestDifficulty.HARD, 10
+                ), request
         )).isInstanceOf(IllegalArgumentException.class);
     }
 

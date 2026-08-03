@@ -11,15 +11,14 @@ import type {
   RedesignQuestRequest,
   RedesignQuestResponse,
 } from '../types'
+import {
+  readStoredDailyQuest,
+  saveStoredDailyQuest,
+  type StoredDailyQuest,
+} from './questMockStore'
 
 const MOCK_USER_KEY = 'restart-quest.mock-user'
-const MOCK_DAILY_QUEST_KEY = 'restart-quest.mock-daily-quest'
 const MOCK_NEXT_QUEST_ERROR_KEY = 'restart-quest.mock-next-quest-error'
-
-interface StoredDailyQuest {
-  userId: string
-  plan: DailyQuestResponse
-}
 
 function readSessionValue<T>(key: string): T | null {
   const value = window.sessionStorage.getItem(key)
@@ -56,7 +55,7 @@ function requireStoredPlan(accessToken: string | null): StoredDailyQuest {
     throw new ApiError(401, 'SESSION_EXPIRED', '다시 로그인해 주세요.')
   }
 
-  const stored = readSessionValue<StoredDailyQuest>(MOCK_DAILY_QUEST_KEY)
+  const stored = readStoredDailyQuest()
   if (
     !stored ||
     stored.userId !== user.id ||
@@ -71,8 +70,18 @@ function requireStoredPlan(accessToken: string | null): StoredDailyQuest {
   return stored
 }
 
-function savePlan(stored: StoredDailyQuest, plan: DailyQuestResponse): void {
-  storeSessionValue(MOCK_DAILY_QUEST_KEY, { ...stored, plan })
+function savePlan(
+  stored: StoredDailyQuest,
+  plan: DailyQuestResponse,
+  redesign?: RedesignQuestResponse['redesign'],
+): void {
+  saveStoredDailyQuest({
+    ...stored,
+    plan,
+    redesigns: redesign
+      ? [...(stored.redesigns ?? []), redesign]
+      : stored.redesigns,
+  })
 }
 
 export const questOutcomeMockApi = {
@@ -100,7 +109,7 @@ export const questOutcomeMockApi = {
     if (nextError) window.sessionStorage.removeItem(MOCK_NEXT_QUEST_ERROR_KEY)
 
     const result = redesignMockQuest(stored.plan, questId, input, nextError)
-    savePlan(stored, result.plan)
+    savePlan(stored, result.plan, result.response.redesign)
     return result.response
   },
 }

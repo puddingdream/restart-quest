@@ -127,3 +127,25 @@ test('feature mock의 AI 오류는 한 번 실패한 뒤 같은 입력으로 재
   assert.equal(retried.journeys.length, 3)
   assert.equal(retried.energyLevel, 'LOW')
 })
+
+test('이력서가 없는 사용자의 생성 퀘스트는 기존 이력서 수정을 전제하지 않는다', async () => {
+  const accessToken = await createOnboardedSession('no-resume@example.com')
+  await onboardingMockApi.upsert(
+    { ...onboarding, hasResume: false },
+    accessToken,
+  )
+
+  const generated = await questMockApi.generate(
+    { energyLevel: 'LOW' },
+    accessToken,
+  )
+
+  assert.equal(
+    generated.journeys[0].currentQuest.title,
+    '이력서에 넣을 경험 하나 고르기',
+  )
+  assert.doesNotMatch(
+    generated.journeys[0].currentQuest.description,
+    /기존 이력서|이력서 수정/,
+  )
+})
