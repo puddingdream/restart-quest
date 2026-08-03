@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ApiError } from '../../shared/api/ApiError'
 import { getQuestErrorFeedback } from './questErrorFeedback'
+import { registerQuestOutcomeErrorFeedbackTests } from './questOutcomeErrorFeedback.test'
+import { registerQuestOutcomeValidationTests } from './questOutcomeValidation.test'
 
 const aiErrors = [
   ['AI_QUOTA_EXCEEDED', '붐비고 있어요'],
@@ -23,3 +25,6 @@ for (const [code, expectedTitle] of aiErrors) {
     assert.doesNotMatch(feedback.message, /provider detail/)
   })
 }
+
+registerQuestOutcomeErrorFeedbackTests()
+registerQuestOutcomeValidationTests()

@@ -211,7 +211,11 @@ export function QuestRedesignDialog({
               disabled={isSubmitting}
             >
               {isSubmitting && <span className="spinner" aria-hidden="true" />}
-              {isSubmitting ? '더 작은 행동 준비 중' : '이 퀘스트 더 작게 바꾸기'}
+              {isSubmitting
+                ? '더 작은 행동 준비 중'
+                : error?.action === 'retry'
+                  ? '같은 내용으로 다시 시도'
+                  : '이 퀘스트 더 작게 바꾸기'}
             </button>
           </div>
         </form>

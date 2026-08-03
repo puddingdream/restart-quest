@@ -8,6 +8,7 @@ import type {
   RedesignQuestResponse,
 } from '../types'
 import { questMockApi } from './questMockApi'
+import { questOutcomeMockApi } from './questOutcomeMockApi'
 
 function usesFeatureMock(): boolean {
   const apiMode =
@@ -34,11 +35,17 @@ export const questApi = {
     })
   },
   complete(questId: string) {
+    if (usesFeatureMock()) {
+      return questOutcomeMockApi.complete(questId, getAccessToken())
+    }
     return apiRequest<QuestJourney>(`/quests/${questId}/completion`, {
       method: 'POST',
     })
   },
   redesign(questId: string, input: RedesignQuestRequest) {
+    if (usesFeatureMock()) {
+      return questOutcomeMockApi.redesign(questId, input, getAccessToken())
+    }
     return apiRequest<RedesignQuestResponse>(
       `/quests/${questId}/failure-redesign`,
       { method: 'POST', body: input },
