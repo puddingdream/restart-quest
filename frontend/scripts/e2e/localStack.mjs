@@ -17,7 +17,9 @@ export async function getFreePort() {
 }
 
 function commandFor(executable, args) {
-  if (process.platform !== 'win32') return { executable, args }
+  const requiresCommandShell =
+    process.platform === 'win32' && /\.(?:cmd|bat)$/i.test(executable)
+  if (!requiresCommandShell) return { executable, args }
   return {
     executable: 'cmd.exe',
     args: ['/d', '/s', '/c', executable, ...args],
@@ -58,7 +60,16 @@ async function waitForBackend(baseUrl, child) {
 export async function startBackend(repoRoot) {
   const backendRoot = path.join(repoRoot, 'backend')
   const wrapper = path.join(backendRoot, process.platform === 'win32' ? 'gradlew.bat' : 'gradlew')
-  await runCommand(wrapper, ['bootJar', '--no-daemon'], { cwd: backendRoot })
+  const gradleExecutable = process.env.E2E_GRADLE_EXECUTABLE ?? wrapper
+  const gradleArgs = [
+    'bootJar',
+    '--no-daemon',
+    ...(process.env.E2E_GRADLE_OFFLINE === '1' ? ['--offline'] : []),
+    ...(process.env.E2E_GRADLE_PROJECT_CACHE
+      ? ['--project-cache-dir', process.env.E2E_GRADLE_PROJECT_CACHE]
+      : []),
+  ]
+  await runCommand(gradleExecutable, gradleArgs, { cwd: backendRoot })
 
   const libraries = await readdir(path.join(backendRoot, 'build', 'libs'))
   const jarName = libraries.find((name) => name.endsWith('.jar') && !name.endsWith('-plain.jar'))

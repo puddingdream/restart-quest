@@ -6,7 +6,45 @@ import { runCommand, startBackend, startFrontendServer } from './e2e/localStack.
 
 const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const repoRoot = path.resolve(frontendRoot, '..')
-const resultDirectory = path.join(frontendRoot, 'test-results')
+const resultDirectory = path.resolve(
+  process.env.E2E_ARTIFACT_DIR ?? path.join(frontendRoot, 'test-results'),
+)
+
+function frontendTool(name) {
+  return path.join(
+    frontendRoot,
+    'node_modules',
+    '.bin',
+    process.platform === 'win32' ? `${name}.cmd` : name,
+  )
+}
+
+async function buildFrontendForHttp() {
+  await runCommand(
+    frontendTool('tsc'),
+    ['-p', 'tsconfig.app.json', '--pretty', 'false', '--incremental', 'false'],
+    { cwd: frontendRoot },
+  )
+  await runCommand(process.execPath, ['scripts/prepareBuild.mjs'], {
+    cwd: frontendRoot,
+    env: { VITE_API_MODE: 'http' },
+  })
+  await runCommand(
+    frontendTool('esbuild'),
+    [
+      'src/main.tsx',
+      '--bundle',
+      '--minify',
+      '--sourcemap',
+      '--format=esm',
+      '--outfile=dist/assets/index.js',
+      '--loader:.tsx=tsx',
+      '--loader:.ts=ts',
+      '--loader:.css=css',
+    ],
+    { cwd: frontendRoot, env: { VITE_API_MODE: 'http' } },
+  )
+}
 
 function fill(selector, value) {
   return `(() => {
@@ -156,6 +194,13 @@ async function runBrowserFlow(page, baseUrl) {
   await page.evaluate("document.querySelector('form').requestSubmit()")
 
   await page.waitFor("location.pathname === '/onboarding' && document.querySelector('#desiredJob')", '온보딩 이동')
+  assert.equal(
+    await page.evaluate(`(() => {
+      const token = sessionStorage.getItem('restart-quest.access-token');
+      return Boolean(token) && !location.href.includes(token) && !document.body.innerText.includes(token);
+    })()`),
+    true,
+  )
   await page.evaluate(fill('#desiredJob', '프론트엔드 개발자'))
   await page.evaluate(fill('#region', '서울 또는 원격'))
   await page.evaluate("document.querySelector('form').requestSubmit()")
@@ -216,10 +261,7 @@ let backend
 let frontend
 let browser
 try {
-  await runCommand(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'build'], {
-    cwd: frontendRoot,
-    env: { VITE_API_MODE: 'http' },
-  })
+  await buildFrontendForHttp()
   backend = await startBackend(repoRoot)
   await expectApiErrors(backend.baseUrl)
   frontend = await startFrontendServer(frontendRoot, backend.baseUrl)
