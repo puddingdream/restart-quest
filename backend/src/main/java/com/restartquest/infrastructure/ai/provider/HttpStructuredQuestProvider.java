@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.ResourceAccessException;
@@ -63,7 +64,21 @@ public class HttpStructuredQuestProvider implements StructuredQuestProvider {
         } catch (ProviderException exception) {
             throw exception;
         } catch (RestClientException exception) {
+            if (hasCause(exception, HttpMessageConversionException.class)) {
+                throw new ProviderException(ProviderException.FailureType.INVALID_RESPONSE);
+            }
             throw new ProviderException(ProviderException.FailureType.UNAVAILABLE);
         }
+    }
+
+    private static boolean hasCause(Throwable error, Class<? extends Throwable> expectedType) {
+        Throwable current = error;
+        while (current != null) {
+            if (expectedType.isInstance(current)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }
