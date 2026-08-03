@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { AuthResponse } from '../../features/auth/types'
-import type { OnboardingRequest } from '../../features/onboarding/types'
-import type { DailyQuestResponse } from '../../features/quests/types'
-import { ApiError } from './ApiError'
+import type { AuthResponse } from '../../auth/types'
+import type { OnboardingRequest } from '../../onboarding/types'
+import { ApiError } from '../../../shared/api/ApiError'
+import { clearMockSession, mockRequest } from '../../../shared/api/mockApi'
 import {
-  clearMockSession,
-  mockRequest,
+  clearQuestMockSession,
+  questMockApi,
   queueMockQuestAiError,
-} from './mockApi'
+} from './questMockApi'
 
 class MemoryStorage {
   private readonly values = new Map<string, string>()
@@ -45,6 +45,7 @@ const onboarding: OnboardingRequest = {
 
 async function createOnboardedSession(email: string): Promise<string> {
   clearMockSession()
+  clearQuestMockSession()
   const auth = await mockRequest<AuthResponse>('/auth/signup', {
     method: 'POST',
     body: { email, name: '테스트 사용자' },
@@ -58,17 +59,14 @@ async function createOnboardedSession(email: string): Promise<string> {
   return auth.accessToken
 }
 
-test('canonical mock은 empty에서 정확히 세 여정을 만들고 당일 재진입에 보존한다', async () => {
+test('feature mock은 empty에서 정확히 세 여정을 만들고 당일 재진입에 보존한다', async () => {
   const accessToken = await createOnboardedSession('journey@example.com')
-  const empty = await mockRequest<DailyQuestResponse>('/quests/today', {
-    method: 'GET',
-    accessToken,
-  })
+  const empty = await questMockApi.getToday(accessToken)
   assert.equal(empty.journeys.length, 0)
 
-  const generated = await mockRequest<DailyQuestResponse>(
-    '/quests/today/generate',
-    { method: 'POST', body: { energyLevel: 'MEDIUM' }, accessToken },
+  const generated = await questMockApi.generate(
+    { energyLevel: 'MEDIUM' },
+    accessToken,
   )
   assert.equal(generated.generatedNow, true)
   assert.equal(generated.journeys.length, 3)
@@ -81,34 +79,30 @@ test('canonical mock은 empty에서 정확히 세 여정을 만들고 당일 재
     ),
   )
 
-  const reentered = await mockRequest<DailyQuestResponse>('/quests/today', {
-    method: 'GET',
-    accessToken,
-  })
+  const reentered = await questMockApi.getToday(accessToken)
   assert.equal(reentered.generatedNow, false)
   assert.deepEqual(
     reentered.journeys.map(({ journeyId }) => journeyId),
     generated.journeys.map(({ journeyId }) => journeyId),
   )
 
-  const duplicate = await mockRequest<DailyQuestResponse>(
-    '/quests/today/generate',
-    { method: 'POST', body: { energyLevel: 'HIGH' }, accessToken },
+  const duplicate = await questMockApi.generate(
+    { energyLevel: 'HIGH' },
+    accessToken,
   )
   assert.equal(duplicate.generatedNow, false)
   assert.equal(duplicate.energyLevel, 'MEDIUM')
   assert.equal(duplicate.journeys.length, 3)
 })
 
-test('canonical mock은 validation 오류를 field error로 구분한다', async () => {
+test('feature mock은 validation 오류를 field error로 구분한다', async () => {
   const accessToken = await createOnboardedSession('validation@example.com')
 
   await assert.rejects(
-    mockRequest('/quests/today/generate', {
-      method: 'POST',
-      body: { energyLevel: 'UNKNOWN' },
+    questMockApi.generate(
+      { energyLevel: 'UNKNOWN' as 'LOW' },
       accessToken,
-    }),
+    ),
     (error: unknown) =>
       error instanceof ApiError &&
       error.code === 'VALIDATION_ERROR' &&
@@ -116,23 +110,19 @@ test('canonical mock은 validation 오류를 field error로 구분한다', async
   )
 })
 
-test('canonical mock의 AI 오류는 한 번 실패한 뒤 같은 입력으로 재시도할 수 있다', async () => {
+test('feature mock의 AI 오류는 한 번 실패한 뒤 같은 입력으로 재시도할 수 있다', async () => {
   const accessToken = await createOnboardedSession('retry@example.com')
   queueMockQuestAiError('AI_PROVIDER_TIMEOUT')
 
   await assert.rejects(
-    mockRequest('/quests/today/generate', {
-      method: 'POST',
-      body: { energyLevel: 'LOW' },
-      accessToken,
-    }),
+    questMockApi.generate({ energyLevel: 'LOW' }, accessToken),
     (error: unknown) =>
       error instanceof ApiError && error.code === 'AI_PROVIDER_TIMEOUT',
   )
 
-  const retried = await mockRequest<DailyQuestResponse>(
-    '/quests/today/generate',
-    { method: 'POST', body: { energyLevel: 'LOW' }, accessToken },
+  const retried = await questMockApi.generate(
+    { energyLevel: 'LOW' },
+    accessToken,
   )
   assert.equal(retried.journeys.length, 3)
   assert.equal(retried.energyLevel, 'LOW')
