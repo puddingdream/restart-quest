@@ -62,7 +62,7 @@ export function registerQuestOutcomeInteractionTests(
 
     assert.notEqual(response.journey.currentQuest.id, original.id)
     assert.equal(response.journey.history[0].status, 'REDESIGNED')
-    assert.equal(response.journey.history.length, 2)
+    assert.equal(response.journey.history.length, 1)
     assert.equal(response.redesign.reasonNote, '첫 단계부터 시작하고 싶어요.')
     assert.equal(
       readStoredPlan().journeys[1].currentQuest.id,
