@@ -63,6 +63,13 @@ public class QuestPlanStoreAdapter implements QuestPlanStore {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Optional<QuestJourney> findJourneySnapshotByQuestForUser(UUID userId, UUID questId) {
+        return journeyRepository.findOwnedJourneySnapshotByQuest(userId, questId)
+                .map(QuestPlanStoreAdapter::initializeJourney);
+    }
+
+    @Override
     @Transactional
     public Optional<QuestJourney> findJourneyByQuestForUser(UUID userId, UUID questId) {
         return journeyRepository.findOwnedJourneyByQuest(userId, questId)
@@ -154,6 +161,22 @@ interface JpaQuestJourneyRepository extends JpaRepository<QuestJourney, UUID> {
             where plan.userId = :userId and journey.currentQuestId = :questId
             """)
     Optional<QuestJourney> findOwnedJourneyByCurrentQuest(
+            @Param("userId") UUID userId,
+            @Param("questId") UUID questId
+    );
+
+    @Query("""
+            select journey
+            from QuestJourney journey
+            join fetch journey.dailyQuestPlan plan
+            where plan.userId = :userId
+              and exists (
+                  select quest.id
+                  from Quest quest
+                  where quest.journey = journey and quest.id = :questId
+              )
+            """)
+    Optional<QuestJourney> findOwnedJourneySnapshotByQuest(
             @Param("userId") UUID userId,
             @Param("questId") UUID questId
     );

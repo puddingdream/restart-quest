@@ -36,6 +36,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,6 +51,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -157,6 +159,15 @@ class FailureRedesignApiTest {
         SignedInUser user = signupAndOnboard("redesign-validation@example.com");
         QuestJourney journey = savePlan(user.userId()).getJourneys().get(0);
         UUID questId = journey.getCurrentQuestId();
+
+        mockMvc.perform(post("/api/v1/quests/not-a-uuid/failure-redesign")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reasonCode\":\"LOW_ENERGY\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("questId"))
+                .andExpect(jsonPath("$.fieldErrors[0].reason").isNotEmpty());
 
         mockMvc.perform(post("/api/v1/quests/{questId}/failure-redesign", questId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(user.accessToken()))
@@ -286,7 +297,9 @@ class FailureRedesignApiTest {
                 statuses.add(future.get(10, TimeUnit.SECONDS).getResponse().getStatus());
             }
             assertThat(statuses).containsExactlyInAnyOrder(200, 409);
+            assertThat(questAiClient.hadActiveTransactionDuringRedesign()).isFalse();
         } finally {
+            start.countDown();
             executor.shutdownNow();
         }
 
@@ -392,9 +405,15 @@ class FailureRedesignApiTest {
     static class StubQuestAiClient implements QuestAiClient {
 
         private final AtomicReference<StubMode> mode = new AtomicReference<>(StubMode.SUCCESS);
+        private final AtomicBoolean activeTransactionObserved = new AtomicBoolean();
 
         void use(StubMode nextMode) {
+            activeTransactionObserved.set(false);
             mode.set(nextMode);
+        }
+
+        boolean hadActiveTransactionDuringRedesign() {
+            return activeTransactionObserved.get();
         }
 
         @Override
@@ -404,8 +423,20 @@ class FailureRedesignApiTest {
 
         @Override
         public RedesignedQuest redesignQuest(QuestRedesignRequest request) {
+            if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                activeTransactionObserved.set(true);
+            }
             return switch (mode.get()) {
-                case SUCCESS -> RedesignedQuest.validate(new QuestDraft(
+                case SUCCESS -> successfulRedesign(request);
+                case INVALID_OUTPUT -> throw new IllegalArgumentException("검증되지 않은 AI 출력");
+                case QUOTA -> throw QuestAiException.quotaExceeded();
+                case UNAVAILABLE -> throw QuestAiException.providerUnavailable();
+                case TIMEOUT -> throw QuestAiException.providerTimeout();
+            };
+        }
+
+        private RedesignedQuest successfulRedesign(QuestRedesignRequest request) {
+            return RedesignedQuest.validate(new QuestDraft(
                         "첫 단계만 시작하기",
                         "원래 목적을 유지하고 범위를 줄인 행동입니다.",
                         "첫 단계 하나를 마칩니다.",
@@ -414,11 +445,6 @@ class FailureRedesignApiTest {
                         QuestDifficulty.EASY,
                         5
                 ), request);
-                case INVALID_OUTPUT -> throw new IllegalArgumentException("검증되지 않은 AI 출력");
-                case QUOTA -> throw QuestAiException.quotaExceeded();
-                case UNAVAILABLE -> throw QuestAiException.providerUnavailable();
-                case TIMEOUT -> throw QuestAiException.providerTimeout();
-            };
         }
     }
 }

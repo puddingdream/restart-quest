@@ -4,11 +4,12 @@ import com.restartquest.application.error.AppException;
 import java.util.Comparator;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import tools.jackson.databind.exc.InvalidFormatException;
 
 @RestControllerAdvice
@@ -50,6 +51,20 @@ public class GlobalExceptionHandler {
                 null
         );
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException exception) {
+        ApiErrorResponse body = new ApiErrorResponse(
+                "INVALID_INPUT",
+                "입력값을 확인해 주세요.",
+                List.of(new FieldErrorResponse(
+                        exception.getName(),
+                        "지원하지 않는 값이 포함되어 있습니다."
+                )),
+                null
+        );
+        return ResponseEntity.badRequest().body(body);
     }
 
     private static String invalidField(HttpMessageNotReadableException exception) {

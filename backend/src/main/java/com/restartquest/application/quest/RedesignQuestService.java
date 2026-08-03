@@ -12,16 +12,12 @@ import com.restartquest.application.port.QuestPlanStore;
 import com.restartquest.domain.quest.Quest;
 import com.restartquest.domain.quest.QuestJourney;
 import com.restartquest.domain.quest.QuestJourneyStatus;
-import com.restartquest.domain.quest.QuestRedesign;
 import com.restartquest.domain.quest.QuestRedesignReasonCode;
 import com.restartquest.domain.quest.QuestStatus;
 import com.restartquest.domain.user.OnboardingProfile;
 import java.util.UUID;
-import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class RedesignQuestService {
@@ -29,49 +25,39 @@ public class RedesignQuestService {
     private final QuestPlanStore questPlanStore;
     private final OnboardingProfileStore onboardingProfileStore;
     private final QuestAiClient questAiClient;
+    private final RedesignQuestWriteService writeService;
 
     public RedesignQuestService(
             QuestPlanStore questPlanStore,
             OnboardingProfileStore onboardingProfileStore,
-            QuestAiClient questAiClient
+            QuestAiClient questAiClient,
+            RedesignQuestWriteService writeService
     ) {
         this.questPlanStore = questPlanStore;
         this.onboardingProfileStore = onboardingProfileStore;
         this.questAiClient = questAiClient;
+        this.writeService = writeService;
     }
 
-    @Transactional
     public RedesignQuestResult redesign(
             UUID userId,
             UUID questId,
             QuestRedesignReasonCode reasonCode,
             String reasonNote
     ) {
-        QuestJourney journey = questPlanStore.findJourneyByQuestForUser(userId, questId)
+        QuestJourney snapshot = questPlanStore.findJourneySnapshotByQuestForUser(userId, questId)
                 .orElseThrow(RedesignQuestService::questNotFound);
-        Quest originalQuest = requireCurrentTodo(journey, questId);
+        Quest originalQuest = requireCurrentTodo(snapshot, questId);
         OnboardingProfile profile = onboardingProfileStore.findByUserId(userId)
                 .orElseThrow(RedesignQuestService::onboardingRequired);
         QuestRedesignRequest request = new QuestRedesignRequest(
-                personalization(profile, journey),
+                personalization(profile, snapshot),
                 QuestDraft.from(originalQuest),
                 reasonCode,
                 reasonNote
         );
         RedesignedQuest redesignedQuest = validatedAiResult(request);
-
-        try {
-            QuestRedesign redesign = journey.redesign(
-                    questId,
-                    redesignedQuest.toAiGeneratedSeed(),
-                    reasonCode,
-                    request.reasonNote()
-            );
-            QuestJourney savedJourney = questPlanStore.saveJourneyForUser(userId, journey);
-            return new RedesignQuestResult(savedJourney, redesign);
-        } catch (OptimisticLockingFailureException | DataIntegrityViolationException exception) {
-            throw questAlreadyResolved();
-        }
+        return writeService.write(userId, questId, reasonCode, request.reasonNote(), redesignedQuest);
     }
 
     private RedesignedQuest validatedAiResult(QuestRedesignRequest request) {
