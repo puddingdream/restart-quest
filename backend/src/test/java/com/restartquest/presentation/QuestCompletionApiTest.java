@@ -63,8 +63,7 @@ class QuestCompletionApiTest {
                 .andExpect(jsonPath("$.currentQuest.questId").value(questId.toString()))
                 .andExpect(jsonPath("$.currentQuest.status").value("DONE"))
                 .andExpect(jsonPath("$.currentQuest.completedAt").isString())
-                .andExpect(jsonPath("$.history.length()").value(1))
-                .andExpect(jsonPath("$.history[0].status").value("DONE"));
+                .andExpect(jsonPath("$.history").isEmpty());
 
         mockMvc.perform(post("/api/v1/quests/{questId}/completion", questId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner.accessToken())))

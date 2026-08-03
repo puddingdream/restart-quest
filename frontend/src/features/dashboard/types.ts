@@ -23,10 +23,6 @@ export interface DashboardQuestSummary {
   estimatedMinutes: number
 }
 
-export interface CompletedJourneySummary extends DashboardQuestSummary {
-  completedAt: string
-}
-
 export interface DashboardRedesignSummary {
   redesignId: string
   journeyId: string
@@ -39,8 +35,8 @@ export interface DashboardRedesignSummary {
 export interface TodayDashboardResponse {
   date: string
   totalJourneys: number
-  completedJourneys: CompletedJourneySummary[]
-  activeJourneys: DashboardQuestSummary[]
+  completedJourneys: number
+  activeJourneys: number
   redesignCount: number
   progressPercent: number
   nextQuest: DashboardQuestSummary | null

@@ -163,10 +163,8 @@ export function redesignMockQuest(
     ...journey,
     currentQuest: replacementQuest,
     history: [
-      ...journey.history.map((quest) =>
-        quest.id === originalQuest.id ? originalQuest : quest,
-      ),
-      replacementQuest,
+      ...journey.history,
+      originalQuest,
     ],
   }
   const redesign: QuestRedesign = {
