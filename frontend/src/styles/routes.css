@@ -1,0 +1,41 @@
+.route-placeholder {
+  min-height: calc(100vh - 5.4rem);
+}
+
+.empty-feature {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.empty-icon {
+  display: grid;
+  width: 4rem;
+  height: 4rem;
+  place-items: center;
+  border-radius: 1rem;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.empty-feature h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.25rem;
+  letter-spacing: -0.03em;
+}
+
+.empty-feature div > p:last-child {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.7;
+}
+
+.empty-feature .eyebrow {
+  margin-bottom: 0.45rem;
+}
