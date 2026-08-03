@@ -4,67 +4,28 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { TodayDashboardResponse, TodayDashboardState } from '../types'
 import { DashboardContent } from './DashboardContent'
 
-class MemoryStorage {
-  private readonly values = new Map<string, string>()
+const retry = () => undefined
 
-  getItem(key: string) {
-    return this.values.get(key) ?? null
-  }
-
-  setItem(key: string, value: string) {
-    this.values.set(key, value)
-  }
-
-  removeItem(key: string) {
-    this.values.delete(key)
+function createMemoryStorage() {
+  const values = new Map<string, string>()
+  return {
+    getItem(key: string) {
+      return values.get(key) ?? null
+    },
+    setItem(key: string, value: string) {
+      values.set(key, value)
+    },
+    removeItem(key: string) {
+      values.delete(key)
+    },
   }
 }
-
-Object.defineProperty(globalThis, 'window', {
-  configurable: true,
-  value: {
-    sessionStorage: new MemoryStorage(),
-    setTimeout,
-    location: { pathname: '/dashboard' },
-    history: { pushState() {}, replaceState() {} },
-    addEventListener() {},
-    removeEventListener() {},
-    dispatchEvent() {},
-  },
-})
-
-const retry = () => undefined
 
 const partialDashboard: TodayDashboardResponse = {
   date: '2026-08-03',
   totalJourneys: 3,
-  completedJourneys: [
-    {
-      journeyId: 'journey-2',
-      questId: 'quest-2',
-      title: '두 번째로 완료한 여정',
-      category: 'JOB_SEARCH',
-      estimatedMinutes: 10,
-      completedAt: '2026-08-03T10:10:00+09:00',
-    },
-    {
-      journeyId: 'journey-1',
-      questId: 'quest-1',
-      title: '첫 번째로 완료한 여정',
-      category: 'RESUME',
-      estimatedMinutes: 15,
-      completedAt: '2026-08-03T09:10:00+09:00',
-    },
-  ],
-  activeJourneys: [
-    {
-      journeyId: 'journey-3',
-      questId: 'quest-3',
-      title: '이어서 할 작은 행동',
-      category: 'INTERVIEW',
-      estimatedMinutes: 10,
-    },
-  ],
+  completedJourneys: 2,
+  activeJourneys: 1,
   redesignCount: 2,
   progressPercent: 67,
   nextQuest: {
@@ -95,6 +56,18 @@ const partialDashboard: TodayDashboardResponse = {
 }
 
 function render(state: TodayDashboardState): string {
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      sessionStorage: createMemoryStorage(),
+      setTimeout,
+      location: { pathname: '/dashboard' },
+      history: { pushState() {}, replaceState() {} },
+      addEventListener() {},
+      removeEventListener() {},
+      dispatchEvent() {},
+    },
+  })
   return renderToStaticMarkup(<DashboardContent state={state} onRetry={retry} />)
 }
 
@@ -113,8 +86,8 @@ test('empty 상태는 분석 UI 대신 오늘 퀘스트 만들기로 연결한�
     data: {
       date: '2026-08-03',
       totalJourneys: 0,
-      completedJourneys: [],
-      activeJourneys: [],
+      completedJourneys: 0,
+      activeJourneys: 0,
       redesignCount: 0,
       progressPercent: 0,
       nextQuest: null,
@@ -127,16 +100,13 @@ test('empty 상태는 분석 UI 대신 오늘 퀘스트 만들기로 연결한�
   assert.doesNotMatch(markup, /<progress/)
 })
 
-test('partial 상태는 진행 정보와 canonical 배열 순서를 그대로 보여준다', () => {
+test('partial 상태는 진행 count와 canonical 재설계 순서를 그대로 보여준다', () => {
   const markup = render({ status: 'success', data: partialDashboard, error: null })
 
   assert.match(markup, /오늘 3개 중 2개 여정을 마쳤어요/)
   assert.match(markup, /오늘 여정 진행 67%/)
   assert.match(markup, /이어서 할 작은 행동/)
-  assert.ok(
-    markup.indexOf('두 번째로 완료한 여정') <
-      markup.indexOf('첫 번째로 완료한 여정'),
-  )
+  assert.match(markup, /오늘 2개 여정을 마쳤어요/)
   assert.ok(
     markup.indexOf('두 번째로 바꾼 행동') <
       markup.indexOf('첫 번째로 바꾼 행동'),
@@ -146,18 +116,8 @@ test('partial 상태는 진행 정보와 canonical 배열 순서를 그대로 �
 test('completed 상태는 완료 안내와 focus 가능한 다음 링크를 보여준다', () => {
   const completed: TodayDashboardResponse = {
     ...partialDashboard,
-    completedJourneys: [
-      ...partialDashboard.completedJourneys,
-      {
-        journeyId: 'journey-3',
-        questId: 'quest-3',
-        title: '세 번째로 완료한 여정',
-        category: 'INTERVIEW',
-        estimatedMinutes: 10,
-        completedAt: '2026-08-03T12:10:00+09:00',
-      },
-    ],
-    activeJourneys: [],
+    completedJourneys: 3,
+    activeJourneys: 0,
     progressPercent: 100,
     nextQuest: null,
   }
