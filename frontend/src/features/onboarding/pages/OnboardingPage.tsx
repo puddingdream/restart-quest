@@ -39,7 +39,9 @@ export function OnboardingPage() {
             values={form.values}
             errors={form.errors}
             isSubmitting={form.isSubmitting}
+            isLoadBlocked={form.isLoadBlocked}
             apiError={form.apiError}
+            onRetryLoad={form.retryLoad}
             updateField={form.updateField}
             onSubmit={form.submit}
           />

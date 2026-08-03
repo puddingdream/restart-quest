@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
-import { ApiError, getApiErrorMessage } from '../../../shared/api/ApiError'
+import {
+  ApiError,
+  getApiErrorMessage,
+  isApiErrorStatus,
+  isSessionExpired,
+} from '../../../shared/api/ApiError'
+import { useAuth } from '../../auth/AuthContext'
 import { onboardingApi } from '../api/onboardingApi'
 import type { OnboardingFormValues } from '../types'
 import {
@@ -27,6 +33,9 @@ export function useOnboardingForm({ onSaved }: UseOnboardingFormOptions) {
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [apiError, setApiError] = useState<string | null>(null)
+  const [isLoadBlocked, setIsLoadBlocked] = useState(false)
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const { expireSession } = useAuth()
 
   useEffect(() => {
     let active = true
@@ -44,8 +53,13 @@ export function useOnboardingForm({ onSaved }: UseOnboardingFormOptions) {
         })
       })
       .catch((error: unknown) => {
-        if (!active || (error instanceof ApiError && error.status === 404)) return
+        if (!active || isApiErrorStatus(error, 404)) return
+        if (isSessionExpired(error)) {
+          expireSession()
+          return
+        }
         setApiError(getApiErrorMessage(error))
+        setIsLoadBlocked(true)
       })
       .finally(() => {
         if (active) setIsLoading(false)
@@ -54,7 +68,7 @@ export function useOnboardingForm({ onSaved }: UseOnboardingFormOptions) {
     return () => {
       active = false
     }
-  }, [])
+  }, [expireSession, loadAttempt])
 
   function updateField<K extends keyof OnboardingFormValues>(
     field: K,
@@ -66,6 +80,7 @@ export function useOnboardingForm({ onSaved }: UseOnboardingFormOptions) {
   }
 
   async function submit(): Promise<void> {
+    if (isLoadBlocked) return
     const nextErrors = validateOnboarding(values)
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
@@ -76,6 +91,10 @@ export function useOnboardingForm({ onSaved }: UseOnboardingFormOptions) {
       await onboardingApi.upsert(toOnboardingRequest(values))
       onSaved()
     } catch (error) {
+      if (isSessionExpired(error)) {
+        expireSession()
+        return
+      }
       if (error instanceof ApiError && error.fieldErrors.length > 0) {
         setErrors((current) => ({
           ...current,
@@ -95,7 +114,14 @@ export function useOnboardingForm({ onSaved }: UseOnboardingFormOptions) {
     errors,
     isLoading,
     isSubmitting,
+    isLoadBlocked,
     apiError,
+    retryLoad() {
+      setApiError(null)
+      setIsLoadBlocked(false)
+      setIsLoading(true)
+      setLoadAttempt((current) => current + 1)
+    },
     updateField,
     submit,
   }

@@ -15,6 +15,8 @@
   "include": [
     "src/app/routing.ts",
     "src/app/routing.test.ts",
+    "src/app/components/SessionUnavailableScreen.tsx",
+    "src/app/components/SessionUnavailableScreen.test.tsx",
     "src/features/auth/types.ts",
     "src/features/auth/components/AuthForm.tsx",
     "src/features/auth/components/AuthForm.test.tsx",
@@ -24,6 +26,9 @@
     "src/features/onboarding/components/OnboardingForm.tsx",
     "src/features/onboarding/components/OnboardingForm.test.tsx",
     "src/shared/auth/sessionToken.ts",
-    "src/shared/auth/sessionToken.test.ts"
+    "src/shared/auth/sessionToken.test.ts",
+    "src/shared/api/ApiError.ts",
+    "src/shared/api/ApiError.test.ts",
+    "src/shared/api/mockApi.ts"
   ]
 }

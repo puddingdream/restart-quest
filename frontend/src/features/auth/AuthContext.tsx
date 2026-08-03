@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import {
+  useCallback,
   createContext,
   useContext,
   useEffect,
@@ -8,15 +9,15 @@ import {
   type ReactNode,
 } from 'react'
 import { authApi } from './api/authApi'
+import { isSessionExpired } from '../../shared/api/ApiError'
 import type { AuthUser, LoginInput, SignupInput } from './types'
 import {
   clearAccessToken,
   getAccessToken,
   storeAccessToken,
 } from '../../shared/auth/sessionToken'
-import { clearMockSession } from '../../shared/api/mockApi'
 
-type AuthStatus = 'checking' | 'anonymous' | 'authenticated'
+type AuthStatus = 'checking' | 'anonymous' | 'authenticated' | 'unavailable'
 
 interface AuthContextValue {
   status: AuthStatus
@@ -24,6 +25,8 @@ interface AuthContextValue {
   login: (input: LoginInput) => Promise<void>
   signup: (input: SignupInput) => Promise<void>
   markOnboardingCompleted: () => void
+  expireSession: () => void
+  retrySession: () => void
   logout: () => void
 }
 
@@ -33,15 +36,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('checking')
   const [user, setUser] = useState<AuthUser | null>(null)
 
-  useEffect(() => {
+  const expireSession = useCallback(() => {
+    clearAccessToken()
+    setUser(null)
+    setStatus('anonymous')
+  }, [])
+
+  const checkSession = useCallback(() => {
     let active = true
     if (!getAccessToken()) {
       setStatus('anonymous')
-      return () => {
-        active = false
-      }
+      return () => undefined
     }
 
+    setStatus('checking')
     authApi
       .me()
       .then((currentUser) => {
@@ -49,18 +57,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(currentUser)
         setStatus('authenticated')
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!active) return
-        clearAccessToken()
-        clearMockSession()
-        setUser(null)
-        setStatus('anonymous')
+        if (isSessionExpired(error)) {
+          expireSession()
+          return
+        }
+        setStatus('unavailable')
       })
 
     return () => {
       active = false
     }
-  }, [])
+  }, [expireSession])
+
+  useEffect(() => checkSession(), [checkSession])
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -83,14 +94,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           current ? { ...current, onboardingCompleted: true } : current,
         )
       },
+      expireSession,
+      retrySession: checkSession,
       logout() {
-        clearAccessToken()
-        clearMockSession()
-        setUser(null)
-        setStatus('anonymous')
+        expireSession()
       },
     }),
-    [status, user],
+    [checkSession, expireSession, status, user],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -22,7 +22,9 @@ test('온보딩 폼은 canonical enum 선택지와 입력 범위를 렌더링한
       values={values}
       errors={{}}
       isSubmitting={false}
+      isLoadBlocked={false}
       apiError={null}
+      onRetryLoad={() => undefined}
       updateField={updateField}
       onSubmit={submit}
     />,
@@ -46,7 +48,9 @@ test('validation, API error와 제출 loading 상태를 노출한다', () => {
         interviewExperience: '면접 경험을 선택해 주세요.',
       }}
       isSubmitting
+      isLoadBlocked={false}
       apiError="저장하지 못했습니다."
+      onRetryLoad={() => undefined}
       updateField={updateField}
       onSubmit={submit}
     />,
@@ -60,4 +64,23 @@ test('validation, API error와 제출 loading 상태를 노출한다', () => {
   assert.match(markup, /면접 경험을 선택해 주세요/)
   assert.match(markup, /시작점을 저장하고 있어요/)
   assert.match(markup, /disabled=""/)
+})
+
+test('프로필 조회 장애에서는 전체 폼 제출을 잠그고 재시도를 제공한다', () => {
+  const markup = renderToStaticMarkup(
+    <OnboardingForm
+      values={values}
+      errors={{}}
+      isSubmitting={false}
+      isLoadBlocked
+      apiError="요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."
+      onRetryLoad={() => undefined}
+      updateField={updateField}
+      onSubmit={submit}
+    />,
+  )
+
+  assert.match(markup, /저장된 정보 다시 불러오기/)
+  assert.match(markup, /type="button"/)
+  assert.equal(markup.match(/disabled=""/g)?.length, 8)
 })

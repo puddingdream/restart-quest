@@ -5,6 +5,7 @@ import { useAuth } from '../features/auth/AuthContext'
 import { OnboardingPage } from '../features/onboarding/pages/OnboardingPage'
 import { TodayPage } from '../features/quests/pages/TodayPage'
 import { LoadingScreen } from './components/LoadingScreen'
+import { SessionUnavailableScreen } from './components/SessionUnavailableScreen'
 import { resolveRoute, useAppNavigation, type ViewRoute } from './routing'
 
 function renderRoute(route: ViewRoute) {
@@ -23,7 +24,7 @@ function renderRoute(route: ViewRoute) {
 }
 
 export function AppRouter() {
-  const { status, user } = useAuth()
+  const { status, user, retrySession } = useAuth()
   const { pathname, navigate } = useAppNavigation()
   const decision = status === 'checking' ? null : resolveRoute(pathname, user)
 
@@ -35,6 +36,9 @@ export function AppRouter() {
 
   if (status === 'checking') {
     return <LoadingScreen label="세션을 안전하게 확인하고 있어요." />
+  }
+  if (status === 'unavailable') {
+    return <SessionUnavailableScreen onRetry={retrySession} />
   }
   if (!decision || decision.kind === 'redirect') {
     return <LoadingScreen label="알맞은 시작 화면으로 이동하고 있어요." />

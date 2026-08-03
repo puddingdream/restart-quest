@@ -12,7 +12,9 @@ interface OnboardingFormProps {
   values: OnboardingFormValues
   errors: OnboardingErrors
   isSubmitting: boolean
+  isLoadBlocked: boolean
   apiError: string | null
+  onRetryLoad: () => void
   updateField: <K extends keyof OnboardingFormValues>(
     field: K,
     value: OnboardingFormValues[K],
@@ -24,10 +26,14 @@ export function OnboardingForm({
   values,
   errors,
   isSubmitting,
+  isLoadBlocked,
   apiError,
+  onRetryLoad,
   updateField,
   onSubmit,
 }: OnboardingFormProps) {
+  const isDisabled = isSubmitting || isLoadBlocked
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     void onSubmit()
@@ -39,6 +45,11 @@ export function OnboardingForm({
         <div className="alert alert-error" role="alert">
           <span aria-hidden="true">!</span>
           <p>{apiError}</p>
+          {isLoadBlocked && (
+            <button className="button" type="button" onClick={onRetryLoad}>
+              저장된 정보 다시 불러오기
+            </button>
+          )}
         </div>
       )}
 
@@ -61,7 +72,7 @@ export function OnboardingForm({
                 ? 'desiredJob-help desiredJob-error'
                 : 'desiredJob-help'
             }
-            disabled={isSubmitting}
+            disabled={isDisabled}
           />
           <p className="field-help" id="desiredJob-help">
             지금 가장 먼저 준비하고 싶은 직무를 적어주세요.
@@ -86,7 +97,7 @@ export function OnboardingForm({
             maxLength={80}
             aria-invalid={Boolean(errors.region)}
             aria-describedby={errors.region ? 'region-error' : undefined}
-            disabled={isSubmitting}
+            disabled={isDisabled}
           />
           {errors.region && (
             <p className="field-error" id="region-error">
@@ -113,7 +124,7 @@ export function OnboardingForm({
               aria-describedby={
                 errors.careerGapMonths ? 'careerGapMonths-error' : undefined
               }
-              disabled={isSubmitting}
+              disabled={isDisabled}
             />
             <span>개월</span>
           </div>
@@ -139,7 +150,7 @@ export function OnboardingForm({
             aria-describedby={
               errors.desiredWorkType ? 'desiredWorkType-error' : undefined
             }
-            disabled={isSubmitting}
+            disabled={isDisabled}
           >
             {DESIRED_WORK_TYPES.map((workType) => (
               <option value={workType} key={workType}>
@@ -163,7 +174,7 @@ export function OnboardingForm({
                 name="hasResume"
                 checked={values.hasResume}
                 onChange={() => updateField('hasResume', true)}
-                disabled={isSubmitting}
+                disabled={isDisabled}
               />
               <span>네, 있어요</span>
             </label>
@@ -173,7 +184,7 @@ export function OnboardingForm({
                 name="hasResume"
                 checked={!values.hasResume}
                 onChange={() => updateField('hasResume', false)}
-                disabled={isSubmitting}
+                disabled={isDisabled}
               />
               <span>아직 없어요</span>
             </label>
@@ -198,7 +209,7 @@ export function OnboardingForm({
                 ? 'interviewExperience-error'
                 : undefined
             }
-            disabled={isSubmitting}
+            disabled={isDisabled}
           >
             {INTERVIEW_EXPERIENCES.map((experience) => (
               <option value={experience} key={experience}>
@@ -219,7 +230,7 @@ export function OnboardingForm({
           입력한 정보는 사용자를 평가하지 않고, 오늘의 행동 크기를 조절하는 데만
           사용해요.
         </p>
-        <button className="button button-primary" disabled={isSubmitting}>
+        <button className="button button-primary" disabled={isDisabled}>
           {isSubmitting && <span className="spinner" aria-hidden="true" />}
           {isSubmitting ? '시작점을 저장하고 있어요' : '오늘의 퀘스트로 이동'}
         </button>
