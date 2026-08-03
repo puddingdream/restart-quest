@@ -7,7 +7,7 @@
     "build": "tsc -b && node scripts/prepareBuild.mjs && .\\node_modules\\@esbuild\\win32-x64\\esbuild.exe src/main.tsx --bundle --minify --sourcemap --format=esm --outfile=dist/assets/index.js --loader:.tsx=tsx --loader:.ts=ts --loader:.css=css",
     "lint": "eslint . --max-warnings=0",
     "smoke": "node scripts/smoke.mjs",
-    "test": "tsc -p tsconfig.test.json && node --test --test-isolation=none .test-dist/**/*.test.js",
+    "test": "tsc -p tsconfig.test.json && node --test --test-isolation=none \".test-dist/**/*.test.js\"",
     "preview": "vite preview"
   },
   "dependencies": {

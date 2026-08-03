@@ -28,6 +28,8 @@
     "src/features/dashboard/components/DashboardOverview.tsx",
     "src/features/dashboard/components/DashboardStates.tsx",
     "src/features/dashboard/components/DashboardContent.test.tsx",
+    "src/features/dashboard/hooks/loadTodayDashboard.ts",
+    "src/features/dashboard/hooks/loadTodayDashboard.test.ts",
     "src/shared/api/mockApi.ts",
     "src/shared/api/mockApi.dashboard.test.ts",
     "src/shared/auth/sessionToken.ts",

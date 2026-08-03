@@ -17,6 +17,7 @@ interface MockRequestOptions {
   method: string
   body?: unknown
   accessToken: string | null
+  now?: Date
 }
 
 function readSessionValue<T>(key: string): T | null {
@@ -105,17 +106,27 @@ function upsertOnboarding(
   return { profile, onboardingCompleted: true }
 }
 
-function getSeoulDate(): string {
+function getSeoulDate(now: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Seoul',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(new Date())
+  }).format(now)
 }
 
-function createDemoDashboard(): TodayDashboardResponse {
-  const date = getSeoulDate()
+function createPastDemoTimestamp(
+  now: Date,
+  date: string,
+  minutesAgo: number,
+): string {
+  const dayStartedAt = new Date(`${date}T00:00:00+09:00`).getTime()
+  const timestamp = Math.max(dayStartedAt, now.getTime() - minutesAgo * 60_000)
+  return new Date(timestamp).toISOString()
+}
+
+function createDemoDashboard(now: Date): TodayDashboardResponse {
+  const date = getSeoulDate(now)
   const nextQuest: DashboardQuestSummary = {
     journeyId: `${date}-journey-2`,
     questId: `${date}-quest-2-revision-2`,
@@ -134,7 +145,7 @@ function createDemoDashboard(): TodayDashboardResponse {
         title: '이력서 경험 문장 하나 다듬기',
         category: 'RESUME',
         estimatedMinutes: 15,
-        completedAt: `${date}T09:20:00+09:00`,
+        completedAt: createPastDemoTimestamp(now, date, 45),
       },
     ],
     activeJourneys: [
@@ -157,18 +168,21 @@ function createDemoDashboard(): TodayDashboardResponse {
         originalQuestTitle: '관심 공고 한 개 살펴보기',
         replacementQuestTitle: nextQuest.title,
         reasonCode: 'TIME_SHORTAGE',
-        createdAt: `${date}T10:05:00+09:00`,
+        createdAt: createPastDemoTimestamp(now, date, 15),
       },
     ],
   }
 }
 
-function getTodayDashboard(accessToken: string | null): TodayDashboardResponse {
+function getTodayDashboard(
+  accessToken: string | null,
+  now: Date = new Date(),
+): TodayDashboardResponse {
   const user = requireUser(accessToken)
-  if (user.email === 'ready@example.com') return createDemoDashboard()
+  if (user.email === 'ready@example.com') return createDemoDashboard(now)
 
   return {
-    date: getSeoulDate(),
+    date: getSeoulDate(now),
     totalJourneys: 0,
     completedJourneys: [],
     activeJourneys: [],
@@ -201,7 +215,7 @@ export async function mockRequest<T>(
     return upsertOnboarding(options.body, options.accessToken) as T
   }
   if (route === 'GET /dashboard/today') {
-    return getTodayDashboard(options.accessToken) as T
+    return getTodayDashboard(options.accessToken, options.now) as T
   }
 
   throw new ApiError(404, 'NOT_FOUND', '요청한 기능을 찾을 수 없습니다.')

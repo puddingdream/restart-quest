@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getApiErrorMessage } from '../../../shared/api/ApiError'
+import { useAuth } from '../../auth/AuthContext'
 import { dashboardApi } from '../api/dashboardApi'
 import type { TodayDashboardState } from '../types'
+import { loadTodayDashboard } from './loadTodayDashboard'
 
 const INITIAL_STATE: TodayDashboardState = {
   status: 'loading',
@@ -10,6 +11,7 @@ const INITIAL_STATE: TodayDashboardState = {
 }
 
 export function useTodayDashboard() {
+  const { logout } = useAuth()
   const [state, setState] = useState<TodayDashboardState>(INITIAL_STATE)
   const requestIdRef = useRef(0)
 
@@ -17,21 +19,16 @@ export function useTodayDashboard() {
     const requestId = ++requestIdRef.current
     setState(INITIAL_STATE)
 
-    try {
-      const data = await dashboardApi.getToday()
-      if (requestId === requestIdRef.current) {
-        setState({ status: 'success', data, error: null })
-      }
-    } catch (error) {
-      if (requestId === requestIdRef.current) {
-        setState({
-          status: 'error',
-          data: null,
-          error: getApiErrorMessage(error),
-        })
-      }
+    const nextState = await loadTodayDashboard(dashboardApi.getToday)
+    if (requestId !== requestIdRef.current) return
+
+    if (nextState.status === 'session-expired') {
+      logout()
+      return
     }
-  }, [])
+
+    setState(nextState)
+  }, [logout])
 
   useEffect(() => {
     void load()
