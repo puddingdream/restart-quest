@@ -1,5 +1,4 @@
 node_modules/
 dist/
 .test-dist/
-.build-cache/
 .npm-cache*/
