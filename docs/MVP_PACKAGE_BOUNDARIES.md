@@ -6,6 +6,7 @@
 
 - backlog: `TASK-002-MVP`, boundary revision `8e8f350e1ccf-D1`
 - 적용 결의: `TASK-002-COLLAB-8e8f350e1ccf-A1-director-D1`
+- 계약 통합 revision: `e79f8d050e`
 - 비교 방식: 누적 PR도 `main`과 비교하지 않고 선언된 dependency head와 현재 worker head의 tree를 `git diff --name-only <base> <head>`로 비교한다.
 - core 통합 base `a0f668917cb1dd1a7d95b2737567aacc58fea9be`에는 선언된 backend endpoint 4개와 frontend feature 2개의 source head가 모두 ancestor로 포함되어 있다.
 - 아래 실제 경로 집합은 wildcard-free directory prefix로 압축 표기한다. 각 표기는 해당 diff에서 그 prefix 아래 발견된 파일 전체를 뜻하며, 정확한 잔여 경로는 별도로 파일 단위로 기록한다.
@@ -14,8 +15,8 @@
 
 1. backend는 실제 구조인 `domain`, `application`, `infrastructure`, `presentation` 계층을 따른다. 이전 설계의 존재하지 않는 feature-first Java 경로를 허용하지 않는다.
 2. 여러 backend use case가 함께 쓰는 `QuestPlanStore`와 adapter는 `be-quest-storage`, 공개 quest 여정/현재 퀘스트 응답 모델은 `be-quest-api-model`이 단독 소유한다.
-3. frontend root build/package-manager 설정, shared API router/mock 기반, query refresh, 공통 style entry는 `fe-app-entry`가 단독 소유한다.
-4. feature mock handler/test는 각 `features/<feature>` 아래에 두고, feature CSS는 해당 page/component에서 직접 import한다. feature worker가 `shared` 또는 공통 style entry를 수정하지 않는다.
+3. frontend root build/package-manager 설정, 공통 `apiRequest`, shared auth와 공통 style entry는 `fe-app-entry`가 단독 소유한다.
+4. feature mock handler/test와 feature 사이 outcome refresh binding은 해당 feature가 소유한다. feature API는 자기 mock handler를 `apiRequest`에 전달하며 중앙 shared mock router를 두지 않는다.
 5. E2E 실행 파일은 `fe-core-flow-integration`이 소유하지만 `package.json`, TypeScript/Vite 설정 변경은 `fe-app-entry` 소유 변경으로 선행 반영한다.
 6. canonical docs는 Design work item만 수정한다. backend/frontend package에서는 모두 read-only context다.
 7. 책임 밖 변경을 정당화하기 위해 `backend/src/**`, `frontend/src/**` 같은 포괄 경계나 중복 소유 경계를 추가하지 않는다.
@@ -200,9 +201,6 @@
 - `frontend/src/main.tsx`
 - `frontend/src/shared/api/ApiError.ts`
 - `frontend/src/shared/api/apiRequest.ts`
-- `frontend/src/shared/api/mockApi.ts`
-- `frontend/src/shared/api/queryRefresh.ts`
-- `frontend/src/shared/api/queryRefresh.test.ts`
 - `frontend/src/shared/auth/**`
 - `frontend/src/styles.css`
 - `frontend/src/styles/auth.css`
@@ -248,8 +246,8 @@
 
 ### Frontend
 
-1. `fe-app-entry`의 shared mock을 요청 routing만 담당하게 줄이고 feature handler를 quests/dashboard feature api로 옮긴다.
-2. query refresh와 root build/test 설정은 `fe-app-entry`에서 완성한 뒤 downstream feature가 다시 수정하지 않게 한다.
+1. 중앙 shared mock router를 제거하고 auth/onboarding/quests/dashboard API가 자기 feature mock handler를 `apiRequest`에 전달한다.
+2. outcome query refresh는 `features/quests/questOutcomeQueryRefresh.ts`가 소유하고 today/dashboard consumer가 같은 key 등록 API를 사용한다. root build/test 설정은 `fe-app-entry`만 수정한다.
 3. 공통 `styles.css`를 feature가 수정하지 않도록 feature CSS를 page/component가 직접 import한다.
 4. core integration은 root 설정 diff를 제거하고 E2E/wire 파일만 유지한다.
 
@@ -264,3 +262,55 @@
 - 신규 선행 package: `be-quest-storage`, `be-quest-api-model` (아직 worker head 없음)
 - 이 revision은 책임 밖 변경을 허용한 metadata 예외가 아니다. 위 이동과 새 head 게시가 끝나야 12개 worker 모두 pass가 된다.
 - 경로 이동이나 분리 후에는 backend 전체 test, frontend test/lint/build, 핵심 사용자 흐름 smoke/E2E를 다시 실행한다.
+
+## 9. 계약 통합 revision `e79f8d050e`
+
+3~8절은 원본 worker head의 dependency-relative 감사 기록으로 유지한다. 원본과 APPLY head의 구현 또는
+binding이 다르면 아래 순서에서 뒤에 오는 APPLY 계약을 최종 정본으로 삼는다. 동일 SHA가 두 단계에
+반복되어도 AgentFlow source evidence 순서를 보존한다.
+
+### 9.1 Design DAG 기반 통합 순서
+
+1. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-01-design`
+2. `TASK-002-DAG-428755fc98-01-be-user-context`
+3. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-01-be-user-context`
+4. `TASK-002-DAG-428755fc98-02-be-quest-domain`
+5. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-02-be-quest-domain`
+6. `TASK-002-DAG-428755fc98-03-be-ai-adapter`
+7. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-03-be-ai-adapter`
+8. `TASK-002-DAG-428755fc98-04-be-daily-generation`
+9. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-04-be-daily-generation`
+10. `TASK-002-DAG-428755fc98-05-be-quest-completion`
+11. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-05-be-quest-completion`
+12. `TASK-002-DAG-428755fc98-06-be-failure-redesign`
+13. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-06-be-failure-redesign`
+14. `TASK-002-DAG-428755fc98-07-be-dashboard`
+15. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-07-be-dashboard`
+16. `TASK-002-DAG-428755fc98-08-fe-app-entry`
+17. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-08-fe-app-entry`
+18. `TASK-002-DAG-428755fc98-09-fe-today-quests`
+19. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-09-fe-today-quests`
+20. `TASK-002-DAG-428755fc98-10-fe-quest-outcomes`
+21. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-10-fe-quest-outcomes`
+22. `TASK-002-DAG-428755fc98-11-fe-dashboard`
+23. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-11-fe-dashboard`
+24. `TASK-002-DAG-428755fc98-12-fe-core-flow-integration`
+25. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-12-fe-core-flow-integration`
+
+### 9.2 최종 producer/consumer 경계
+
+- 인증·사용자·온보딩 producer는 auth/user/onboarding controller DTO이며 `fe-app-entry`가 그대로 소비한다.
+- quest persistence producer는 domain과 `QuestPlanStore`이며 generation, completion, redesign, dashboard가
+  사용자 소유권, 단일 current quest, 동일 journey revision과 낙관적 잠금 의미를 공유한다.
+- daily/completion/redesign/dashboard HTTP producer의 wire 필드는 `docs/api/quest-api.md`를 따르고 frontend는
+  API 경계에서만 화면 model로 변환한다.
+- mock 호출은 feature API가 자기 handler를 공통 `apiRequest`에 전달한다. 삭제된
+  `frontend/src/shared/api/mockApi.ts`는 최종 router가 아니다.
+- outcome refresh producer는 `frontend/src/features/quests/questOutcomeQueryRefresh.ts`이며 today와 dashboard
+  hook이 각각 `QUEST_OUTCOME_QUERY_KEYS`로 등록한다. 삭제된 `frontend/src/shared/api/queryRefresh.ts`의
+  경로와 export 이름은 최종 binding이 아니다.
+
+모든 frontend consumer는 위 feature-owned binding을 사용한 뒤
+`온보딩 -> 오늘 퀘스트 생성 -> 완료 또는 실패 이유 입력 -> 더 쉬운 퀘스트 재설계 -> 대시보드 반영`
+흐름을 검증한다. 상담·감시·의지 평가 의미를 추가하거나 완료 상세 배열처럼 producer가 제공하지 않는
+필드를 consumer가 합성하지 않는다.

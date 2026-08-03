@@ -1,5 +1,4 @@
-import type { AuthUser } from '../../auth/types'
-import { mockRequest } from '../../../shared/api/mockApi'
+import { requireMockUser } from '../../auth/api/authMockApi'
 import type {
   DashboardQuestSummary,
   TodayDashboardResponse,
@@ -47,10 +46,7 @@ function createDemoDashboard(): TodayDashboardResponse {
 
 export const dashboardMockApi = {
   async getToday(accessToken: string | null): Promise<TodayDashboardResponse> {
-    const user = await mockRequest<AuthUser>('/users/me', {
-      method: 'GET',
-      accessToken,
-    })
+    const user = requireMockUser(accessToken)
     if (user.email === 'ready@example.com') return createDemoDashboard()
 
     return {

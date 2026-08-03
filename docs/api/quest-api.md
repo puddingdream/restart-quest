@@ -134,18 +134,33 @@ view model은 두 값을 정수 count로 받아 요약 문구를 표시한다. �
 ## 5. 공유 UI binding
 
 퀘스트 완료와 재설계 성공 뒤 `refreshQuestOutcomeQueries()`를 정확히 한 번 호출한다. 이 함수는
-`QUEST_QUERY_KEYS.today`와 `QUEST_QUERY_KEYS.dashboard`에 등록된 모든 refresher를 함께 실행한다.
-각 화면 hook은 mount 시 등록하고 unmount 시 반환된 disposer를 호출한다. 일부 refresh 실패가 다른
-refresh를 취소하지 않도록 현재 `Promise.allSettled` 동작을 유지한다.
+`frontend/src/features/quests/questOutcomeQueryRefresh.ts`가 소유하며,
+`QUEST_OUTCOME_QUERY_KEYS.today`와 `QUEST_OUTCOME_QUERY_KEYS.dashboard`에 등록된 모든 refresher를 함께
+실행한다. 각 화면 hook은 `registerQuestOutcomeQueryRefresher()`로 mount 시 등록하고 unmount 시 반환된
+disposer를 호출한다. 일부 refresh 실패가 다른 refresh를 취소하지 않도록 현재 `Promise.allSettled`
+동작을 유지한다. 이전 `frontend/src/shared/api/queryRefresh.ts` 경로와 `QUEST_QUERY_KEYS`,
+`registerQueryRefresher` 이름은 제거된 v1 내부 binding이므로 다시 사용하지 않는다.
+
+mock routing도 feature가 소유한다. `apiRequest()`는 각 feature API가 전달한 `mock` handler를 실행하며,
+auth, onboarding, quests, dashboard는 각각 자기 feature 아래 mock adapter를 제공한다. 삭제된 중앙
+`frontend/src/shared/api/mockApi.ts` router를 재도입하거나 새 endpoint를 그 파일에 등록하지 않는다.
 
 ## 6. Producer/consumer 동기화 증적
 
 | Change ID | Producer 정본 | Consumer | 확정 결과 |
 |---|---|---|---|
 | `TASK-002-DAG-428755fc98-01-be-user-context-contract-1` | auth/user/onboarding controller DTO | `fe-app-entry` | 필드와 상태 유지; nullable region만 form에서 빈 문자열로 정규화 |
+| `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-01-be-user-context-contract-1` | auth/user/onboarding controller DTO | `fe-app-entry` | signup/login/me와 onboarding GET/PUT의 canonical 응답·오류 상태를 producer 구현 기준으로 유지 |
 | `TASK-002-DAG-428755fc98-02-be-quest-domain-schema-1` | quest domain과 `QuestPlanStore` | daily/completion/redesign/dashboard backend | 사용자 소유권, 단일 current quest, 동일 journey revision, write lock 유지 |
+| `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-02-be-quest-domain-contract-1` | quest domain과 `QuestPlanStore` | daily/completion/redesign/dashboard backend | 원본 persistence 계약과 같은 불변식·낙관적 잠금 의미로 통합 |
+| `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-04-be-daily-generation-contract-1` | daily quest controller DTO | `fe-today-quests`, `fe-quest-outcomes`, `fe-core-flow-integration` | GET/generate 모두 `generatedNow`, canonical `currentQuest`와 이전 revision만의 `history` 사용 |
+| `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-05-be-quest-completion-contract-1` | completion controller와 quest DTO | `fe-quest-outcomes`, `fe-core-flow-integration` | 현재 TODO만 완료하며 미소유·미존재와 이미 처리된 경쟁 요청의 오류를 구분 |
+| `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-06-be-failure-redesign-contract-1` | redesign controller와 quest DTO | `fe-quest-outcomes`, `fe-core-flow-integration` | 같은 journey의 단일 replacement와 최상위 journey 필드·`redesign` 응답을 사용 |
 | `TASK-002-DAG-428755fc98-07-be-dashboard-contract-1` | `TodayDashboardResponse` | `fe-dashboard`, `fe-core-flow-integration` | count 필드와 상세 `nextQuest`/`recentRedesigns`를 producer 기준으로 확정 |
-| `TASK-002-DAG-428755fc98-10-fe-quest-outcomes-contract-1` | `queryRefresh.ts` | `fe-dashboard` | today/dashboard 동시 refresh 등록·해제 계약 유지 |
+| `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-07-be-dashboard-contract-1` | dashboard controller DTO | `fe-dashboard`, `fe-core-flow-integration` | 세 journey 기준 summary, 다음 quest와 최신순 redesign 이력을 canonical producer와 일치시킴 |
+| `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-08-fe-app-entry-contract-1` | `apiRequest.ts`와 feature mock adapters | 모든 frontend feature | 중앙 mock router를 제거하고 feature API가 자기 mock handler를 전달하는 binding으로 확정 |
+| `TASK-002-DAG-428755fc98-10-fe-quest-outcomes-contract-1` | outcome refresh 동작 | `fe-dashboard` | today/dashboard 동시 refresh 의미는 유지하되 경로·이름은 후속 APPLY 계약으로 대체 |
+| `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-10-fe-quest-outcomes-contract-1` | `features/quests/questOutcomeQueryRefresh.ts` | `fe-dashboard`, `fe-core-flow-integration` | `QUEST_OUTCOME_QUERY_KEYS`와 feature-owned 등록 API를 최종 binding으로 사용 |
 
 `fe-core-flow-integration`은 위 변환을 적용한 뒤 실제 HTTP 모드에서
 `온보딩 -> 생성 -> 완료 -> 다른 활성 여정 재설계 -> today/dashboard 재조회`를 검증한다. 완료된 동일

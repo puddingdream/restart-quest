@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { AuthResponse } from '../../auth/types'
 import { ApiError } from '../../../shared/api/ApiError'
-import { clearMockSession, mockRequest } from '../../../shared/api/mockApi'
+import {
+  authMockApi,
+  clearAuthMockSession,
+} from '../../auth/api/authMockApi'
 import { dashboardMockApi } from './dashboardMockApi'
 
 class MemoryStorage {
@@ -35,11 +37,11 @@ Object.defineProperty(globalThis, 'window', {
 })
 
 test('canonical feature mock은 생성 전 empty 응답을 제공한다', async () => {
-  clearMockSession()
-  const auth = await mockRequest<AuthResponse>('/auth/signup', {
-    method: 'POST',
-    body: { email: 'new@example.com', name: '새 사용자' },
-    accessToken: null,
+  clearAuthMockSession()
+  const auth = await authMockApi.signup({
+    email: 'new@example.com',
+    password: 'password123',
+    name: '새 사용자',
   })
   const dashboard = await dashboardMockApi.getToday(auth.accessToken)
 
@@ -51,11 +53,10 @@ test('canonical feature mock은 생성 전 empty 응답을 제공한다', async 
 })
 
 test('canonical feature mock은 진행, 다음 행동과 기록 순서를 함께 반환한다', async () => {
-  clearMockSession()
-  const auth = await mockRequest<AuthResponse>('/auth/login', {
-    method: 'POST',
-    body: { email: 'ready@example.com' },
-    accessToken: null,
+  clearAuthMockSession()
+  const auth = await authMockApi.login({
+    email: 'ready@example.com',
+    password: 'password123',
   })
   const dashboard = await dashboardMockApi.getToday(auth.accessToken)
 
@@ -72,7 +73,7 @@ test('canonical feature mock은 진행, 다음 행동과 기록 순서를 함께
 })
 
 test('canonical feature mock은 인증되지 않은 조회를 구분한다', async () => {
-  clearMockSession()
+  clearAuthMockSession()
 
   await assert.rejects(
     dashboardMockApi.getToday(null),
