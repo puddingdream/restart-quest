@@ -232,10 +232,6 @@ AI 오류는 `AI_QUOTA_EXCEEDED`(429), `AI_INVALID_RESPONSE`(502), `AI_PROVIDER_
 
 응답 필드는 `date`, `totalJourneys`, `completedJourneys`, `activeJourneys`, `redesignCount`, `progressPercent`, `nextQuest`, `recentRedesigns`다. `totalJourneys`, `completedJourneys`, `activeJourneys`, `redesignCount`, `progressPercent`는 모두 정수다. 완료/활성 여정 상세 배열이 아니므로 frontend는 이 필드에 `.length` 또는 `.map`을 적용하지 않는다. `progressPercent`는 완료 여정 수를 전체 여정 수로 나눈 진행 표시이며 사용자 평가 점수가 아니다.
 
-- 생성 전에는 여정 수와 진행률을 모두 `0`으로 반환한다. 생성 후 `totalJourneys`는 재설계 횟수와 무관하게 최초 세 여정이며, 정수 `progressPercent`는 완료 여정 비율을 반올림해 계산한다.
-- `nextQuest`는 최초 슬롯 순서에서 가장 앞선 `ACTIVE` 여정의 현재 퀘스트다. 모두 완료했거나 생성 전이면 `null`이다. 필드는 `journeyId`, `questId`, `revision`, `title`, `description`, `completionCriteria`, `steps`, `category`, `difficulty`, `estimatedMinutes`다.
-- `recentRedesigns`는 오늘 세 여정의 기록을 `createdAt` 최신순으로 반환한다. 각 항목은 `redesignId`, `journeyId`, `originalQuestId`, `originalQuestTitle`, `replacementQuestId`, `replacementQuestTitle`, `reasonCode`, `reasonNote`, `createdAt`을 포함한다.
-
 ## 8. AI 구조화 출력 계약
 
 ### 8.1 오늘 퀘스트 생성
