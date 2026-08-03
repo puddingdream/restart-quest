@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
-import { refreshQuestOutcomeQueries } from '../../../shared/api/queryRefresh'
 import { questApi } from '../api/questApi'
+import { refreshQuestOutcomeQueries } from '../questOutcomeQueryRefresh'
 import {
   getQuestOutcomeErrorFeedback,
   type QuestOutcomeErrorFeedback,
@@ -49,7 +49,7 @@ export function useQuestOutcomes({
         const updatedJourney = await questApi.complete(quest.id)
         onJourneyUpdated(updatedJourney)
         setAnnouncement(`‘${quest.title}’ 퀘스트를 완료했어요.`)
-        void refreshQuestOutcomeQueries()
+        await refreshQuestOutcomeQueries()
         return true
       } catch (error) {
         setErrors((current) => ({
@@ -77,7 +77,7 @@ export function useQuestOutcomes({
         setAnnouncement(
           `‘${quest.title}’ 퀘스트를 더 작은 행동으로 바꿨어요.`,
         )
-        void refreshQuestOutcomeQueries()
+        await refreshQuestOutcomeQueries()
         return true
       } catch (error) {
         setErrors((current) => ({

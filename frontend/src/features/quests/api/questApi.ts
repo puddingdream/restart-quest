@@ -1,5 +1,4 @@
 import { apiRequest } from '../../../shared/api/apiRequest'
-import { getAccessToken } from '../../../shared/auth/sessionToken'
 import type {
   DailyQuestResponse,
   GenerateDailyQuestRequest,
@@ -8,40 +7,37 @@ import type {
   RedesignQuestResponse,
 } from '../types'
 import { questMockApi } from './questMockApi'
-
-function usesFeatureMock(): boolean {
-  const apiMode =
-    import.meta.env?.VITE_API_MODE ??
-    document
-      .querySelector<HTMLMetaElement>('meta[name="restart-quest-api-mode"]')
-      ?.getAttribute('content')
-
-  return apiMode !== 'http'
-}
+import { questOutcomeMockApi } from './questOutcomeMockApi'
 
 export const questApi = {
   getToday() {
-    if (usesFeatureMock()) return questMockApi.getToday(getAccessToken())
-    return apiRequest<DailyQuestResponse>('/quests/today')
+    return apiRequest<DailyQuestResponse>('/quests/today', {
+      mock: ({ accessToken }) => questMockApi.getToday(accessToken),
+    })
   },
   generate(input: GenerateDailyQuestRequest) {
-    if (usesFeatureMock()) {
-      return questMockApi.generate(input, getAccessToken())
-    }
     return apiRequest<DailyQuestResponse>('/quests/today/generate', {
       method: 'POST',
       body: input,
+      mock: ({ accessToken }) => questMockApi.generate(input, accessToken),
     })
   },
   complete(questId: string) {
     return apiRequest<QuestJourney>(`/quests/${questId}/completion`, {
       method: 'POST',
+      mock: ({ accessToken }) =>
+        questOutcomeMockApi.complete(questId, accessToken),
     })
   },
   redesign(questId: string, input: RedesignQuestRequest) {
     return apiRequest<RedesignQuestResponse>(
       `/quests/${questId}/failure-redesign`,
-      { method: 'POST', body: input },
+      {
+        method: 'POST',
+        body: input,
+        mock: ({ accessToken }) =>
+          questOutcomeMockApi.redesign(questId, input, accessToken),
+      },
     )
   },
 }

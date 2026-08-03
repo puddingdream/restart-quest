@@ -10,26 +10,28 @@ const redesignErrors = [
   'AI_PROVIDER_TIMEOUT',
 ] as const
 
-for (const code of redesignErrors) {
-  test(`${code} 재설계 오류는 입력 유지와 재시도를 안내한다`, () => {
+export function registerQuestOutcomeErrorFeedbackTests(): void {
+  for (const code of redesignErrors) {
+    test(`${code} 재설계 오류는 입력 유지와 재시도를 안내한다`, () => {
+      const feedback = getQuestOutcomeErrorFeedback(
+        new ApiError(503, code, 'provider raw detail'),
+        'redesign',
+      )
+
+      assert.equal(feedback.code, code)
+      assert.equal(feedback.action, 'retry')
+      assert.match(feedback.message, /유지|그대로/)
+      assert.doesNotMatch(feedback.message, /provider raw detail/)
+    })
+  }
+
+  test('이미 바뀐 퀘스트는 중복 제출 대신 최신 목록 확인을 안내한다', () => {
     const feedback = getQuestOutcomeErrorFeedback(
-      new ApiError(503, code, 'provider raw detail'),
-      'redesign',
+      new ApiError(409, 'QUEST_ALREADY_RESOLVED', '이미 처리됨'),
+      'completion',
     )
 
-    assert.equal(feedback.code, code)
-    assert.equal(feedback.action, 'retry')
-    assert.match(feedback.message, /유지|그대로/)
-    assert.doesNotMatch(feedback.message, /provider raw detail/)
+    assert.equal(feedback.action, 'refresh')
+    assert.match(feedback.message, /최신 상태/)
   })
 }
-
-test('이미 바뀐 퀘스트는 중복 제출 대신 최신 목록 확인을 안내한다', () => {
-  const feedback = getQuestOutcomeErrorFeedback(
-    new ApiError(409, 'QUEST_ALREADY_RESOLVED', '이미 처리됨'),
-    'completion',
-  )
-
-  assert.equal(feedback.action, 'refresh')
-  assert.match(feedback.message, /최신 상태/)
-})

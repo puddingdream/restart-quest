@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  QUEST_QUERY_KEYS,
-  registerQueryRefresher,
-} from '../../../shared/api/queryRefresh'
+  QUEST_OUTCOME_QUERY_KEYS,
+  registerQuestOutcomeQueryRefresher,
+} from '../questOutcomeQueryRefresh'
 import { questApi } from '../api/questApi'
 import {
   getQuestErrorFeedback,
@@ -48,7 +48,11 @@ export function useTodayQuests() {
   }, [])
 
   useEffect(
-    () => registerQueryRefresher(QUEST_QUERY_KEYS.today, refreshToday),
+    () =>
+      registerQuestOutcomeQueryRefresher(
+        QUEST_OUTCOME_QUERY_KEYS.today,
+        refreshToday,
+      ),
     [refreshToday],
   )
 
