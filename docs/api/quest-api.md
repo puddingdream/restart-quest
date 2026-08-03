@@ -134,19 +134,62 @@ view model은 두 값을 정수 count로 받아 요약 문구를 표시한다. �
 ## 5. 공유 UI binding
 
 퀘스트 완료와 재설계 성공 뒤 `refreshQuestOutcomeQueries()`를 정확히 한 번 호출한다. 이 함수는
-`QUEST_QUERY_KEYS.today`와 `QUEST_QUERY_KEYS.dashboard`에 등록된 모든 refresher를 함께 실행한다.
-각 화면 hook은 mount 시 등록하고 unmount 시 반환된 disposer를 호출한다. 일부 refresh 실패가 다른
-refresh를 취소하지 않도록 현재 `Promise.allSettled` 동작을 유지한다.
+`QUEST_OUTCOME_QUERY_KEYS.today`와 `QUEST_OUTCOME_QUERY_KEYS.dashboard`에
+`registerQuestOutcomeQueryRefresher()`로 등록된 모든 refresher를 함께 실행한다. binding 정본은
+`frontend/src/features/quests/questOutcomeQueryRefresh.ts`다. 각 화면 hook은 mount 시 등록하고
+unmount 시 반환된 disposer를 호출한다. 일부 refresh 실패가 다른 refresh를 취소하지 않도록 현재
+`Promise.allSettled` 동작을 유지한다.
+
+`apiRequest`는 중앙 mock router를 소유하지 않는다. auth, onboarding, quests, dashboard API가 mock
+동작을 각 feature 경계에서 선택하며 HTTP 모드에서는 위 wire 계약을 그대로 사용한다.
 
 ## 6. Producer/consumer 동기화 증적
 
 | Change ID | Producer 정본 | Consumer | 확정 결과 |
 |---|---|---|---|
 | `TASK-002-DAG-428755fc98-01-be-user-context-contract-1` | auth/user/onboarding controller DTO | `fe-app-entry` | 필드와 상태 유지; nullable region만 form에서 빈 문자열로 정규화 |
+| `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-01-be-user-context-contract-1` | auth/user/onboarding controller DTO | `fe-app-entry` | signup 201, login/me/onboarding 200 및 canonical 오류 상태 유지 |
 | `TASK-002-DAG-428755fc98-02-be-quest-domain-schema-1` | quest domain과 `QuestPlanStore` | daily/completion/redesign/dashboard backend | 사용자 소유권, 단일 current quest, 동일 journey revision, write lock 유지 |
+| `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-02-be-quest-domain-contract-1` | quest domain과 `QuestPlanStore` | AI/daily/completion/redesign/dashboard backend | persistence v1 불변식과 낙관적 잠금 계약 유지 |
+| `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-04-be-daily-generation-contract-1` | `DailyQuestController`, daily DTO | today/outcomes/core-flow frontend | `generatedNow`, current/history wire 변환 확정 |
+| `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-05-be-quest-completion-contract-1` | `QuestController`, journey DTO | outcomes/core-flow frontend | 소유자 현재 TODO만 DONE/COMPLETED 전이; not found/resolved 오류 구분 |
+| `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-06-be-failure-redesign-contract-1` | `QuestRedesignController`, redesign DTO | outcomes/core-flow frontend | 동일 여정의 단일 대체 퀘스트와 최상위 redesign 응답 확정 |
 | `TASK-002-DAG-428755fc98-07-be-dashboard-contract-1` | `TodayDashboardResponse` | `fe-dashboard`, `fe-core-flow-integration` | count 필드와 상세 `nextQuest`/`recentRedesigns`를 producer 기준으로 확정 |
-| `TASK-002-DAG-428755fc98-10-fe-quest-outcomes-contract-1` | `queryRefresh.ts` | `fe-dashboard` | today/dashboard 동시 refresh 등록·해제 계약 유지 |
+| `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-07-be-dashboard-contract-1` | `DashboardController`, `TodayDashboardResponse` | dashboard/core-flow frontend | completed/active를 정수 count로 확정 |
+| `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-08-fe-app-entry-contract-1` | `apiRequest` mock handler binding | auth/onboarding/quests/dashboard frontend | 중앙 router 의존을 제거하고 feature-owned mock 선택으로 확정 |
+| `TASK-002-DAG-428755fc98-10-fe-quest-outcomes-contract-1` | 기존 shared query refresh binding | `fe-dashboard` | today/dashboard 동시 refresh 의미를 보존 |
+| `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-10-fe-quest-outcomes-contract-1` | `questOutcomeQueryRefresh.ts` | dashboard/core-flow frontend | feature-owned key와 등록 API로 이동; 이전 shared 경로는 사용하지 않음 |
 
 `fe-core-flow-integration`은 위 변환을 적용한 뒤 실제 HTTP 모드에서
 `온보딩 -> 생성 -> 완료 -> 다른 활성 여정 재설계 -> today/dashboard 재조회`를 검증한다. 완료된 동일
 퀘스트를 다시 재설계하는 흐름은 계약상 `409 QUEST_ALREADY_RESOLVED`이므로 smoke 순서로 사용하지 않는다.
+
+## 7. Generation 932a70df65 통합 순서
+
+아래 순서는 설계 DAG의 producer 선행 조건과 각 원본 head 뒤 APPLY 보정 순서를 함께 고정한다.
+같은 SHA인 원본/APPLY도 증적 순서를 보존하며, 후속 package는 앞선 계약을 되돌리지 않는다.
+
+1. `TASK-002-DAG-428755fc98-01-be-user-context`
+2. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-01-be-user-context`
+3. `TASK-002-DAG-428755fc98-02-be-quest-domain`
+4. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-02-be-quest-domain`
+5. `TASK-002-DAG-428755fc98-03-be-ai-adapter`
+6. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-03-be-ai-adapter`
+7. `TASK-002-DAG-428755fc98-04-be-daily-generation`
+8. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-04-be-daily-generation`
+9. `TASK-002-DAG-428755fc98-05-be-quest-completion`
+10. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-05-be-quest-completion`
+11. `TASK-002-DAG-428755fc98-06-be-failure-redesign`
+12. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-06-be-failure-redesign`
+13. `TASK-002-DAG-428755fc98-07-be-dashboard`
+14. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-07-be-dashboard`
+15. `TASK-002-DAG-428755fc98-08-fe-app-entry`
+16. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-08-fe-app-entry`
+17. `TASK-002-DAG-428755fc98-09-fe-today-quests`
+18. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-09-fe-today-quests`
+19. `TASK-002-DAG-428755fc98-10-fe-quest-outcomes`
+20. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-10-fe-quest-outcomes`
+21. `TASK-002-DAG-428755fc98-11-fe-dashboard`
+22. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-11-fe-dashboard`
+23. `TASK-002-DAG-428755fc98-12-fe-core-flow-integration`
+24. `TASK-002-COLLAB-8e8f350e1ccf-APPLY-task-002-dag-428755fc98-12-fe-core-flow-integration`

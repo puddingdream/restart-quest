@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getApiErrorMessage } from '../../../shared/api/ApiError'
 import {
-  QUEST_QUERY_KEYS,
-  registerQueryRefresher,
-} from '../../../shared/api/queryRefresh'
+  QUEST_OUTCOME_QUERY_KEYS,
+  registerQuestOutcomeQueryRefresher,
+} from '../../quests/questOutcomeQueryRefresh'
 import { dashboardApi } from '../api/dashboardApi'
 import type { TodayDashboardState } from '../types'
 
@@ -45,7 +45,11 @@ export function useTodayDashboard() {
   }, [load])
 
   useEffect(
-    () => registerQueryRefresher(QUEST_QUERY_KEYS.dashboard, load),
+    () =>
+      registerQuestOutcomeQueryRefresher(
+        QUEST_OUTCOME_QUERY_KEYS.dashboard,
+        load,
+      ),
     [load],
   )
 

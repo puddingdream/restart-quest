@@ -70,6 +70,7 @@ test('feature mock은 empty에서 정확히 세 여정을 만들고 당일 재�
   )
   assert.equal(generated.generatedNow, true)
   assert.equal(generated.journeys.length, 3)
+  assert.ok(generated.journeys.every(({ history }) => history.length === 0))
   assert.ok(
     generated.journeys.every(
       ({ currentQuest }) =>
