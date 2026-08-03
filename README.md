@@ -56,6 +56,9 @@ Re:Start Quest는 기능 많은 취업 종합 앱이 아니라, 실패 후에도
 - [MVP 구현 정본](docs/MVP_IMPLEMENTATION_BLUEPRINT.md)
 - [API 계약](docs/api/quest-api.md)
 - [코드 품질 가드레일](docs/CODE_QUALITY_GUARDRAILS.md)
+- [QA 기준](docs/agents/ROLE_QA.md)
+- [Reviewer 기준](docs/agents/ROLE_REVIEWER.md)
+- [Merge 정책](docs/workflow/MERGE_POLICY.md)
 
 ## 로컬 실행
 

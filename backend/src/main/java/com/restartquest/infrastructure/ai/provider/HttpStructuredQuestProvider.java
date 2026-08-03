@@ -4,6 +4,8 @@ import com.restartquest.infrastructure.ai.provider.StructuredQuestProviderContra
 import com.restartquest.infrastructure.ai.provider.StructuredQuestProviderContract.GenerationResponse;
 import com.restartquest.infrastructure.ai.provider.StructuredQuestProviderContract.RedesignRequest;
 import com.restartquest.infrastructure.ai.provider.StructuredQuestProviderContract.RedesignResponse;
+import java.net.SocketTimeoutException;
+import java.net.http.HttpTimeoutException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
@@ -27,8 +29,8 @@ public class HttpStructuredQuestProvider implements StructuredQuestProvider {
             @Value("${restartquest.ai.runtime.api-key}") String apiKey
     ) {
         this.restClient = builder
-                .baseUrl(baseUrl)
-                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                .baseUrl(requiredSetting(baseUrl, "base URL"))
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + requiredSetting(apiKey, "API key"))
                 .build();
     }
 
@@ -60,7 +62,11 @@ public class HttpStructuredQuestProvider implements StructuredQuestProvider {
             }
             throw new ProviderException(ProviderException.FailureType.UNAVAILABLE);
         } catch (ResourceAccessException exception) {
-            throw new ProviderException(ProviderException.FailureType.TIMEOUT);
+            if (hasCause(exception, SocketTimeoutException.class)
+                    || hasCause(exception, HttpTimeoutException.class)) {
+                throw new ProviderException(ProviderException.FailureType.TIMEOUT);
+            }
+            throw new ProviderException(ProviderException.FailureType.UNAVAILABLE);
         } catch (ProviderException exception) {
             throw exception;
         } catch (RestClientException exception) {
@@ -69,6 +75,13 @@ public class HttpStructuredQuestProvider implements StructuredQuestProvider {
             }
             throw new ProviderException(ProviderException.FailureType.UNAVAILABLE);
         }
+    }
+
+    private static String requiredSetting(String value, String name) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException("Runtime AI provider " + name + " is not configured.");
+        }
+        return value.trim();
     }
 
     private static boolean hasCause(Throwable error, Class<? extends Throwable> expectedType) {
