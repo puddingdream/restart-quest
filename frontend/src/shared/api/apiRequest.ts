@@ -1,12 +1,16 @@
 import { ApiError, type FieldError } from './ApiError'
-import { mockRequest } from './mockApi'
 import { getAccessToken } from '../auth/sessionToken'
 
 const API_BASE_PATH = '/api/v1'
 
-interface RequestOptions {
+interface MockRequestContext {
+  accessToken: string | null
+}
+
+interface RequestOptions<T> {
   method?: 'GET' | 'POST' | 'PUT'
   body?: unknown
+  mock?: (context: MockRequestContext) => Promise<T> | T
 }
 
 interface ErrorPayload {
@@ -59,7 +63,7 @@ async function toApiError(response: Response): Promise<ApiError> {
 
 export async function apiRequest<T>(
   path: string,
-  options: RequestOptions = {},
+  options: RequestOptions<T> = {},
 ): Promise<T> {
   const method = options.method ?? 'GET'
   const accessToken = getAccessToken()
@@ -70,7 +74,10 @@ export async function apiRequest<T>(
       ?.getAttribute('content')
 
   if (apiMode !== 'http') {
-    return mockRequest<T>(path, { method, body: options.body, accessToken })
+    if (!options.mock) {
+      throw new ApiError(404, 'NOT_FOUND', '요청한 기능을 찾을 수 없습니다.')
+    }
+    return options.mock({ accessToken })
   }
 
   const response = await fetch(`${API_BASE_PATH}${path}`, {
