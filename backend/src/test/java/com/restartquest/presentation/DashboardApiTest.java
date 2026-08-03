@@ -32,11 +32,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@Transactional
 class DashboardApiTest {
 
     private static final LocalDate TODAY = LocalDate.now(ZoneId.of("Asia/Seoul"));
@@ -118,6 +116,8 @@ class DashboardApiTest {
         QuestRedesign first = redesign(
                 account.userId(), firstJourney, "공고 제목만 읽기", QuestRedesignReasonCode.TASK_TOO_LARGE
         );
+        firstJourney = questPlanStore.findJourneyForUser(account.userId(), firstJourney.getId())
+                .orElseThrow();
         QuestRedesign second = redesign(
                 account.userId(), firstJourney, "공고 사이트 열기", QuestRedesignReasonCode.LOW_ENERGY
         );
