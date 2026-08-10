@@ -4,11 +4,11 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && node scripts/prepareBuild.mjs && .\\node_modules\\@esbuild\\win32-x64\\esbuild.exe src/main.tsx --bundle --minify --sourcemap --format=esm --outfile=dist/assets/index.js --loader:.tsx=tsx --loader:.ts=ts --loader:.css=css",
+    "build": "tsc -b && node scripts/prepareBuild.mjs && esbuild src/main.tsx --bundle --minify --sourcemap --format=esm --outfile=dist/assets/index.js --loader:.tsx=tsx --loader:.ts=ts --loader:.css=css",
     "lint": "eslint . --max-warnings=0",
     "e2e": "node scripts/e2e.mjs",
     "smoke": "node scripts/smoke.mjs",
-    "test": "tsc -p tsconfig.test.json && node --test --test-isolation=none .test-dist/**/*.test.js",
+    "test": "tsc -p tsconfig.test.json && node --test --test-isolation=none .test-dist/**/*.test.js && node --test --test-isolation=none scripts/e2e/*.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -20,6 +20,7 @@
     "@types/react": "https://registry.npmjs.org/@types/react/-/react-19.2.17.tgz",
     "@types/react-dom": "https://registry.npmjs.org/@types/react-dom/-/react-dom-19.2.3.tgz",
     "@vitejs/plugin-react": "https://registry.npmjs.org/@vitejs/plugin-react/-/plugin-react-4.7.0.tgz",
+    "esbuild": "0.25.12",
     "eslint": "9.39.4",
     "eslint-plugin-react-hooks": "5.2.0",
     "eslint-plugin-react-refresh": "0.4.26",

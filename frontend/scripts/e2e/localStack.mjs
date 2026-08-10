@@ -4,6 +4,7 @@ import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 
 const READY_TIMEOUT_MS = 45_000
+const STOP_TIMEOUT_MS = 5_000
 
 export async function getFreePort() {
   const server = createServer()
@@ -55,6 +56,52 @@ async function waitForBackend(baseUrl, child) {
   throw new Error('backend 준비 시간이 초과되었습니다.')
 }
 
+function waitForExit(child, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (exited) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      child.removeListener('exit', onExit)
+      resolve(exited)
+    }
+    const onExit = () => finish(true)
+    child.once('exit', onExit)
+    const timeout = setTimeout(() => finish(false), timeoutMs)
+    if (child.exitCode !== null) finish(true)
+  })
+}
+
+export async function stopChild(child, timeoutMs = STOP_TIMEOUT_MS) {
+  if (child.exitCode !== null) return
+
+  const gracefulExit = waitForExit(child, timeoutMs)
+  child.kill()
+  if (await gracefulExit || child.exitCode !== null) return
+
+  const forcedExit = waitForExit(child, timeoutMs)
+  child.kill('SIGKILL')
+  if (await forcedExit || child.exitCode !== null) return
+  throw new Error('자식 프로세스가 종료되지 않았습니다.')
+}
+
+export async function ensureBackendReady(baseUrl, child, wait = waitForBackend) {
+  try {
+    await wait(baseUrl, child)
+  } catch (readinessError) {
+    try {
+      await stopChild(child)
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [readinessError, cleanupError],
+        'backend 준비 실패 후 프로세스를 종료하지 못했습니다.',
+      )
+    }
+    throw readinessError
+  }
+}
+
 export async function startBackend(repoRoot) {
   const backendRoot = path.join(repoRoot, 'backend')
   const wrapper = path.join(backendRoot, process.platform === 'win32' ? 'gradlew.bat' : 'gradlew')
@@ -71,17 +118,10 @@ export async function startBackend(repoRoot) {
     ['-jar', path.join(backendRoot, 'build', 'libs', jarName), `--server.port=${port}`],
     { cwd: backendRoot, stdio: 'ignore' },
   )
-  await waitForBackend(baseUrl, child)
+  await ensureBackendReady(baseUrl, child)
   return {
     baseUrl,
-    stop: async () => {
-      if (child.exitCode !== null) return
-      child.kill()
-      await new Promise((resolve) => {
-        child.once('exit', resolve)
-        setTimeout(resolve, 5_000)
-      })
-    },
+    stop: () => stopChild(child),
   }
 }
 

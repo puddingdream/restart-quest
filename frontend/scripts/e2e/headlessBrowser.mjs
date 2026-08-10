@@ -52,18 +52,12 @@ async function waitForPage(port, child) {
   throw new Error('headless browser 준비 시간이 초과되었습니다.')
 }
 
-class CdpPage {
-  constructor(webSocketUrl) {
-    this.socket = new WebSocket(webSocketUrl)
+export class CdpPage {
+  constructor(webSocketUrl, createSocket = (url) => new WebSocket(url)) {
+    this.socket = createSocket(webSocketUrl)
     this.nextId = 1
     this.pending = new Map()
-  }
-
-  async connect() {
-    await new Promise((resolve, reject) => {
-      this.socket.addEventListener('open', resolve, { once: true })
-      this.socket.addEventListener('error', reject, { once: true })
-    })
+    this.disconnectError = null
     this.socket.addEventListener('message', (event) => {
       const message = JSON.parse(event.data)
       if (!message.id) return
@@ -73,15 +67,55 @@ class CdpPage {
       if (message.error) pending.reject(new Error(message.error.message))
       else pending.resolve(message.result)
     })
+    this.socket.addEventListener('close', () => {
+      this.rejectPending(new Error('DevTools WebSocket 연결이 종료되었습니다.'))
+    })
+    this.socket.addEventListener('error', () => {
+      this.rejectPending(new Error('DevTools WebSocket 연결 중 오류가 발생했습니다.'))
+    })
+  }
+
+  rejectPending(error) {
+    if (!this.disconnectError) this.disconnectError = error
+    for (const pending of this.pending.values()) pending.reject(this.disconnectError)
+    this.pending.clear()
+  }
+
+  async connect() {
+    if (this.disconnectError) throw this.disconnectError
+    await new Promise((resolve, reject) => {
+      const cleanup = () => {
+        this.socket.removeEventListener('open', onOpen)
+        this.socket.removeEventListener('close', onDisconnect)
+        this.socket.removeEventListener('error', onDisconnect)
+      }
+      const onOpen = () => {
+        cleanup()
+        resolve()
+      }
+      const onDisconnect = () => {
+        cleanup()
+        reject(this.disconnectError ?? new Error('DevTools WebSocket에 연결하지 못했습니다.'))
+      }
+      this.socket.addEventListener('open', onOpen, { once: true })
+      this.socket.addEventListener('close', onDisconnect, { once: true })
+      this.socket.addEventListener('error', onDisconnect, { once: true })
+    })
     await this.send('Page.enable')
     await this.send('Runtime.enable')
   }
 
   send(method, params = {}) {
+    if (this.disconnectError) return Promise.reject(this.disconnectError)
     const id = this.nextId++
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject })
-      this.socket.send(JSON.stringify({ id, method, params }))
+      try {
+        this.socket.send(JSON.stringify({ id, method, params }))
+      } catch (error) {
+        this.pending.delete(id)
+        reject(error)
+      }
     })
   }
 
@@ -174,5 +208,16 @@ export async function launchBrowser() {
       })
       await rm(profileDirectory, { recursive: true, force: true })
     },
+  }
+}
+
+export async function runRequiredBrowserFlow(runFlow, baseUrl, launch = launchBrowser) {
+  const browser = await launch()
+  try {
+    await runFlow(browser.page, baseUrl)
+    return browser
+  } catch (error) {
+    await browser.stop()
+    throw error
   }
 }

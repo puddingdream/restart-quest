@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { launchBrowser } from './e2e/headlessBrowser.mjs'
+import { runRequiredBrowserFlow } from './e2e/headlessBrowser.mjs'
 import { runCommand, startBackend, startFrontendServer } from './e2e/localStack.mjs'
 
 const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -47,93 +47,6 @@ async function expectApiErrors(backendBaseUrl) {
   })
   assert.equal(generation.status, 409)
   assert.equal((await generation.json()).code, 'ONBOARDING_REQUIRED')
-}
-
-async function apiRequest(baseUrl, pathName, options = {}) {
-  const response = await fetch(`${baseUrl}/api/v1${pathName}`, {
-    method: options.method ?? 'GET',
-    headers: {
-      accept: 'application/json',
-      ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
-      ...(options.body ? { 'content-type': 'application/json' } : {}),
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  })
-  const payload = await response.json()
-  if (!response.ok) {
-    throw new Error(`API ${pathName} 응답이 ${response.status}/${payload.code ?? 'UNKNOWN'}였습니다.`)
-  }
-  return payload
-}
-
-async function runApiCoreFlow(backendBaseUrl) {
-  const signup = await apiRequest(backendBaseUrl, '/auth/signup', {
-    method: 'POST',
-    body: {
-      email: `core-flow-api-${Date.now()}@example.test`,
-      password: 'safe-e2e-password',
-      name: '다시 시작',
-    },
-  })
-  const token = signup.accessToken
-  await apiRequest(backendBaseUrl, '/onboarding/me', {
-    method: 'PUT',
-    token,
-    body: {
-      desiredJob: '프론트엔드 개발자',
-      region: '서울 또는 원격',
-      desiredWorkType: 'ANY',
-      careerGapMonths: 3,
-      hasResume: true,
-      interviewExperience: 'LIMITED',
-    },
-  })
-  const generated = await apiRequest(backendBaseUrl, '/quests/today/generate', {
-    method: 'POST',
-    token,
-    body: { energyLevel: 'LOW' },
-  })
-  assert.equal(generated.journeys.length, 3)
-
-  const completedQuestId = generated.journeys[0].currentQuest.questId
-  const redesignQuestId = generated.journeys[1].currentQuest.questId
-  await apiRequest(backendBaseUrl, `/quests/${completedQuestId}/completion`, {
-    method: 'POST',
-    token,
-  })
-  const redesigned = await apiRequest(
-    backendBaseUrl,
-    `/quests/${redesignQuestId}/failure-redesign`,
-    {
-      method: 'POST',
-      token,
-      body: {
-        reasonCode: 'TASK_TOO_LARGE',
-        reasonNote: '오늘은 첫 단계만 이어가고 싶어요.',
-      },
-    },
-  )
-  assert.equal(redesigned.currentQuest.title, '첫 단계만 시작하기')
-  assert.equal(redesigned.history.length, 1)
-
-  const today = await apiRequest(backendBaseUrl, '/quests/today', { token })
-  assert.equal(today.journeys.length, 3)
-  assert.equal(today.journeys.filter((journey) => journey.status === 'COMPLETED').length, 1)
-  assert.equal(today.journeys[1].history.length, 1)
-  assert.equal(today.journeys[1].currentQuest.questId, redesigned.currentQuest.questId)
-
-  const dashboard = await apiRequest(backendBaseUrl, '/dashboard/today', { token })
-  assert.equal(dashboard.totalJourneys, 3)
-  assert.equal(dashboard.completedJourneys, 1)
-  assert.equal(dashboard.redesignCount, 1)
-  assert.equal(dashboard.recentRedesigns[0].replacementQuestTitle, '첫 단계만 시작하기')
-
-  const duplicate = await fetch(
-    `${backendBaseUrl}/api/v1/quests/${completedQuestId}/completion`,
-    { method: 'POST', headers: { authorization: `Bearer ${token}` } },
-  )
-  assert.equal(duplicate.status, 409)
-  assert.equal((await duplicate.json()).code, 'QUEST_ALREADY_RESOLVED')
 }
 
 async function verifyFrontendHttpBuild(frontendBaseUrl) {
@@ -224,17 +137,8 @@ try {
   await expectApiErrors(backend.baseUrl)
   frontend = await startFrontendServer(frontendRoot, backend.baseUrl)
   await verifyFrontendHttpBuild(frontend.baseUrl)
-  try {
-    browser = await launchBrowser()
-  } catch (error) {
-    if (process.env.E2E_REQUIRE_BROWSER === '1') throw error
-    await runApiCoreFlow(backend.baseUrl)
-    console.log('Core flow E2E passed with HTTP fallback: auth, onboarding, 3 journeys, completion, redesign, refresh consistency, typed errors')
-  }
-  if (browser) {
-    await runBrowserFlow(browser.page, frontend.baseUrl)
-    console.log('Core flow E2E passed in browser: auth, onboarding, 3 journeys, completion, redesign, refresh consistency, typed errors, desktop/mobile screenshots')
-  }
+  browser = await runRequiredBrowserFlow(runBrowserFlow, frontend.baseUrl)
+  console.log('Core flow E2E passed in browser: auth, onboarding, 3 journeys, completion, redesign, refresh consistency, typed errors, desktop/mobile screenshots')
 } finally {
   await browser?.stop()
   await frontend?.stop()
