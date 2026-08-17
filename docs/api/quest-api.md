@@ -36,12 +36,16 @@ Spring presentation DTO가 producer 기준이다. frontend 화면 모델과 mock
 |---|---|---|---|
 | POST | `/auth/signup` | `email`, `password`, `name` | 201 `AuthResponse` |
 | POST | `/auth/login` | `email`, `password` | 200 `AuthResponse` |
+| POST | `/auth/logout` | body 없음 | 204 body 없음 |
 | GET | `/users/me` | 없음 | 200 `UserResponse` |
 | GET | `/onboarding/me` | 없음 | 200 `OnboardingResponse` |
 | PUT | `/onboarding/me` | `OnboardingRequest` | 200 `OnboardingResponse` |
 
 `AuthResponse`는 `accessToken: string`, `user: UserResponse`를 가진다. `UserResponse`는
 `id`, `email`, `name`, `onboardingCompleted`만 공개한다.
+
+로그아웃은 공통 인증 규칙에 따라 현재 access token을 Bearer header로 전달한다. 성공하면 해당 token을
+폐기하고 body 없이 204를 반환하며, 이후 같은 token으로 보호된 API를 호출하면 `401 UNAUTHORIZED`다.
 
 `OnboardingRequest` 필드는 다음과 같다.
 
