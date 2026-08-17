@@ -122,7 +122,7 @@ class UserContextApiTest {
     }
 
     @Test
-    void rejectsPasswordOverBcryptByteLimitAndRevokesTokenOnLogout() throws Exception {
+    void rejectsPasswordOverBcryptByteLimit() throws Exception {
         String multibytePassword = "가".repeat(25);
         mockMvc.perform(post("/api/v1/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -131,7 +131,10 @@ class UserContextApiTest {
                                 """.formatted(multibytePassword)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+    }
 
+    @Test
+    void logoutReturnsNoContentAndRevokesCurrentAccessToken() throws Exception {
         String accessToken = signupAndGetToken("logout@example.com");
         mockMvc.perform(post("/api/v1/auth/logout")
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
