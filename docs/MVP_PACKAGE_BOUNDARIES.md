@@ -332,3 +332,54 @@ producer/consumer 계약 충돌과 실제 실행 환경에서만 드러난 결�
 대시보드 집계와 인증 만료를 검증하고 데스크톱/모바일 화면을 렌더링한다. 이 통합 검증이 통과하면
 3~8절의 원본 residual mismatch는 과거 worker head 감사 기록으로만 남고 MVP publish blocker로
 해석하지 않는다.
+
+## 11. TASK-021 cross-stack import provenance
+
+### 11.1 source와 superseding lineage
+
+| 구분 | branch / SHA | 관계 |
+|---|---|---|
+| main 기준 | `main@35e7b25b05aabf45f61d96da0777bbafb9ceb655` | 224-file source delta의 비교 기준이며 source와 통합 head의 조상 |
+| 원본 구현 | `agentflow/task-015-01-backend-backend@779439facde6c2a6bc824917fa0d04d31cb8de05` | PR #73 head; 과거 remediation은 재개하지 않고 계보 증거로만 사용 |
+| superseding source | `agentflow/task-015-contract-4a8feeaa49-design-design@6a63905385d0c35e97d9aa1bbd23f1bd5e891613` | PR #74 head이며 원본 구현을 직접 부모로 갖고 logout API 정본을 추가한 유일 source |
+| TASK-021 design parent | `f9ff2f76529e0e73795043ad45f4b4d63447b7a1` | TASK-021 계획 문서를 소유한 merge의 첫 번째 부모 |
+| import 결과 | `faa19e2d604cadafd551297dbde22ea4c7002017` | design parent와 superseding source를 정확한 두 부모로 갖는 integration merge commit |
+
+PR #73/#74를 각각 병합하지 않는다. PR #74 source가 PR #73 head를 직접 포함하므로 superseding source
+한 개를 merge한 위 commit이 TASK-021의 단일 통합 기준선이다. source 고유 변경은
+`docs/api/quest-api.md` 한 파일이고, source와 import 결과의 차이는 design 소유
+`docs/TASK_021_INTEGRATION_PLAN.md` 한 파일뿐이다.
+
+### 11.2 main 대비 224-file package-owned tree
+
+`task-021-baseline-import`가 소유한 source manifest는 main 대비 정확히 224개다. manifest SHA-256은
+`09a7bc6f430b3b2fdb9c7b9a5154d8c2182ff89715c45c50a0a931bf09f6504c`이며, tree 경계와 파일 수는
+다음과 같다.
+
+| package-owned tree | 파일 수 | 소유 내용 |
+|---|---:|---|
+| `README.md` | 1 | root 실행·검증 안내 |
+| `backend/.gitattributes`, `backend/.gitignore`, `backend/build.gradle`, `backend/settings.gradle`, `backend/gradlew`, `backend/gradlew.bat`, `backend/gradle/**` | 8 | backend build/tooling |
+| `backend/src/main/**` | 94 | backend runtime 구현과 migration |
+| `backend/src/test/**` | 19 | backend 회귀 및 test resource |
+| `frontend/.gitignore`, `frontend/index.html`, `frontend/package.json`, `frontend/package-lock.json`, `frontend/eslint.config.mjs`, `frontend/tsconfig.app.json`, `frontend/tsconfig.json`, `frontend/tsconfig.test.json`, `frontend/vite.config.mjs` | 9 | frontend build/tooling |
+| `frontend/scripts/**` | 6 | build, smoke, E2E harness |
+| `frontend/src/**` | 80 | React feature, API boundary, 일반 CSS |
+| `docs/MVP_IMPLEMENTATION_BLUEPRINT.md`, `docs/MVP_PACKAGE_BOUNDARIES.md`, `docs/agents/ROLE_QA.md`, `docs/agents/ROLE_REVIEWER.md`, `docs/api/quest-api.md`, `docs/workflow/MERGE_POLICY.md`, `docs/workflow/REVIEW_REMEDIATION.md` | 7 | canonical 계약과 workflow |
+| **합계** | **224** | main/source 및 design/import postimage가 일치하는 cross-stack source tree |
+
+import 이후 `task-021-contract-provenance`는 `README.md`,
+`docs/MVP_IMPLEMENTATION_BLUEPRINT.md`, `docs/MVP_PACKAGE_BOUNDARIES.md`,
+`docs/TASK_021_INTEGRATION_PLAN.md`만 소유한다. 기능 코드, API 정본, PR metadata는 이 package의
+package-owned tree가 아니다.
+
+### 11.3 rollback lineage
+
+rollback 단위는 224개 경로 일부가 아니라 integration merge commit
+`faa19e2d604cadafd551297dbde22ea4c7002017` 전체다. downstream 변경을 역순으로 처리한 뒤 승인된
+rollback에서만 `git revert -m 1 faa19e2d604cadafd551297dbde22ea4c7002017`로 추적 가능한 역변경
+commit을 만들고, 배포는 직전 함께 검증된 artifact/image와 health 기준으로 복귀한다. 이 명령은
+working tree와 history를 변경하므로 조사 단계에서는 실행하지 않는다.
+
+DB는 DROP, volume 삭제 또는 적용 migration의 파괴적 역실행으로 되돌리지 않는다. 데이터는 보존하고,
+필요한 schema 복구는 별도 forward migration과 backup·dry-run·health check가 준비된 변경으로 수행한다.

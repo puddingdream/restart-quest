@@ -207,11 +207,15 @@ AI 오류는 `AI_QUOTA_EXCEEDED`(429), `AI_INVALID_RESPONSE`(502), `AI_PROVIDER_
 |---|---|---|---|
 | POST | `/auth/signup` | `email`, `password`, `name` | 201, `accessToken`, `user` |
 | POST | `/auth/login` | `email`, `password` | 200, `accessToken`, `user` |
+| POST | `/auth/logout` | body 없음, `Authorization: Bearer <access-token>` | 204, body 없음 |
 | GET | `/users/me` | 없음 | 200, `user` |
 | GET | `/onboarding/me` | 없음 | 200 또는 미작성 시 404 |
 | PUT | `/onboarding/me` | `desiredJob`, `region?`, `desiredWorkType`, `careerGapMonths`, `hasResume`, `interviewExperience` | 200, `profile`, `onboardingCompleted: true` |
 
 `user` 응답은 `id`, `email`, `name`, `onboardingCompleted`만 공개한다.
+
+로그아웃 성공 시 Bearer header로 전달한 현재 access token을 폐기한다. 이후 같은 token으로 보호 API를
+호출하면 `401 UNAUTHORIZED`를 반환해야 하며, 다른 세션이나 token까지 일괄 폐기하지 않는다.
 
 ### 7.3 오늘의 퀘스트
 

@@ -43,7 +43,7 @@ Re:Start Quest는 기능 많은 취업 종합 앱이 아니라, 실패 후에도
 
 ## 기술 방향
 
-- Frontend: React, TypeScript, Tailwind CSS
+- Frontend: React, TypeScript, Vite, 일반 CSS(CSS Modules/Tailwind 미사용)
 - Backend: Spring Boot, Java, Spring Security, JPA
 - DB: PostgreSQL 또는 MySQL
 - AI: LLM JSON 구조화 출력 기반 퀘스트 생성/재설계
@@ -54,6 +54,7 @@ Re:Start Quest는 기능 많은 취업 종합 앱이 아니라, 실패 후에도
 - [인수인계 문서](docs/RESTART_QUEST_HANDOFF.md)
 - [제품 방향성](docs/PRODUCT_DIRECTION.md)
 - [MVP 구현 정본](docs/MVP_IMPLEMENTATION_BLUEPRINT.md)
+- [TASK-021 통합 기준선 및 검증 계획](docs/TASK_021_INTEGRATION_PLAN.md)
 - [API 계약](docs/api/quest-api.md)
 - [코드 품질 가드레일](docs/CODE_QUALITY_GUARDRAILS.md)
 - [QA 기준](docs/agents/ROLE_QA.md)
@@ -73,11 +74,20 @@ cd backend
 # terminal 2
 cd frontend
 npm ci
+VITE_API_MODE=http npm run dev
+```
+
+Windows PowerShell에서는 백엔드를 `./gradlew.bat bootRun`으로 실행하고, 프론트는 다음처럼
+HTTP mode를 명시합니다.
+
+```powershell
+$env:VITE_API_MODE = 'http'
 npm run dev
 ```
 
-Windows PowerShell에서는 백엔드를 `./gradlew.bat bootRun`으로 실행합니다. 프론트 개발
-서버는 `/api` 요청을 `http://localhost:8080`으로 전달합니다.
+일반 로컬 실행의 기준은 실제 backend를 사용하는 HTTP mode입니다. 프론트 개발 서버는 `/api`
+요청을 `http://localhost:8080`으로 전달합니다. backend 없이 UI fixture만 확인하는 격리 테스트에서만
+`VITE_API_MODE=mock`을 명시적으로 사용하며, mock 결과를 통합 검증 근거로 사용하지 않습니다.
 
 ## 검증
 

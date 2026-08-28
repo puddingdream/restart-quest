@@ -15,8 +15,9 @@ TASK-021이 증명할 사용자 가치는 다음과 같다.
 | main 및 정본 문서 조사 | 완료 | `35e7b25b05aabf45f61d96da0777bbafb9ceb655`, clean worktree |
 | PR #73/#74 계보 비교 | 완료 | #73 head가 #74 head의 직접 부모임을 확인 |
 | 단일 통합 후보 확정 | 완료 | `agentflow/task-015-contract-4a8feeaa49-design-design@6a63905385d0c35e97d9aa1bbd23f1bd5e891613` |
-| source import | 대기 | trusted host가 branch/SHA를 재확인한 뒤 수행 |
-| 역할별 수정·검증 | 대기 | 아래 package DAG에 따라 실행 |
+| source import | 완료 | merge commit `faa19e2d604cadafd551297dbde22ea4c7002017`, main 대비 source 224-file manifest |
+| 계약·provenance 문서 정합화 | 작성 완료, publish 대기 | `task-021-contract-provenance` 소유 문서 4개 |
+| 역할별 수정·검증 | 진행 중 | 아래 package DAG의 독립 package가 같은 import 기준선에서 실행 |
 | QA/Reviewer 및 최종 보고 | 대기 | 동일 immutable 통합 head의 새 증거만 사용 |
 
 ## 2. 사용자 목표와 금지 범위
@@ -50,7 +51,7 @@ TASK-021이 증명할 사용자 가치는 다음과 같다.
 | PR #73 | `779439facde6c2a6bc824917fa0d04d31cb8de05` | 기존 통합 구현과 logout 회귀 테스트를 포함하지만 current-head finding이 남은 참고 head |
 | PR #74 | `6a63905385d0c35e97d9aa1bbd23f1bd5e891613` | PR #73을 직접 부모로 하고 logout API 정본 문서까지 포함한 최신 재사용 후보 |
 
-PR #74 head는 main, 기존 TASK-002 통합 head `7fb8c5fd2ad6b0f65101c8f6b8c641e61d1e122d`, PR #73 head를 모두 조상으로 가진다. 따라서 TASK-021은 다음 immutable source 한 개만 root package에서 merge 방식으로 import한다.
+PR #74 head는 main, 기존 TASK-002 통합 head `7fb8c5fd2ad6b0f65101c8f6b8c641e61d1e122d`, PR #73 head를 모두 조상으로 가진다. 따라서 TASK-021은 다음 immutable source 한 개만 root package에서 merge 방식으로 import했다.
 
 ```text
 branch=agentflow/task-015-contract-4a8feeaa49-design-design
@@ -58,7 +59,11 @@ expectedHeadSha=6a63905385d0c35e97d9aa1bbd23f1bd5e891613
 operation=merge
 ```
 
-host가 import 직전에 branch가 이 SHA를 가리키지 않거나 main ancestry가 달라졌음을 발견하면 import를 중단하고 새 설계 판단을 요청한다. provider는 fetch, merge, rebase를 수행하지 않는다.
+trusted host는 import 직전에 branch/SHA와 main ancestry를 재확인했고, design head
+`f9ff2f76529e0e73795043ad45f4b4d63447b7a1` 및 source SHA를 두 부모로 하는 merge commit
+`faa19e2d604cadafd551297dbde22ea4c7002017`을 만들었다. 이 기준선을 다시 만들 때 branch가 위 SHA를
+가리키지 않거나 main ancestry가 달라지면 import를 중단하고 새 설계 판단을 요청한다. provider는 fetch,
+merge, rebase를 수행하지 않는다.
 
 ### 3.2 재사용하는 구현
 
@@ -311,3 +316,32 @@ context file은 읽기 전용이며 같은 경로가 위 allowed paths에 명시
 - QA PASS와 Reviewer APPROVE가 동일 head를 가리키고 blocking actionable thread가 없다.
 - 제공되는 CI와 secret scan 및 quiet window가 통과한다.
 - 최종 보고에 구현 PR, 검증 명령·결과, 남은 nonblocking 위험과 rollback이 있다.
+
+## 10. 작업 산출물과 현재 진행 보고
+
+7절의 package별 역할 지시와 allowed path를 TASK-021 실행 계약으로 유지한다. 현재 산출물과 다음 gate는
+아래와 같으며, 과거 PR의 테스트나 review 결과를 완료 증거로 승격하지 않는다.
+
+| work/package | 담당 | 산출물 또는 상태 |
+|---|---|---|
+| `TASK-021-01-design` | design | 단일 source와 독립 slice DAG를 이 문서에 기록, PR #77 |
+| `task-021-baseline-import` | backend-infra | exact source를 한 번 import한 merge commit `faa19e2d604cadafd551297dbde22ea4c7002017`, PR #78 |
+| `task-021-contract-provenance` | backend-infra | blueprint logout, package ledger, README와 이 진행 보고 작성 완료; AgentFlow publish 대기 |
+| backend 회귀와 세 frontend correctness package | backend / frontend-state | import 기준선에서 독립 구현·검증 진행 |
+| `task-021-fe-core-e2e` | frontend | 선행 package 통합 뒤 실제 backend와 strict browser 검증 대기 |
+| QA / Reviewer | qa / reviewer | 모든 구현을 합친 동일 immutable head와 최신 thread/CI 증거 대기 |
+
+## 11. Rollback 및 배포 복귀 경계
+
+- 코드 rollback 단위는 integration merge commit `faa19e2d604cadafd551297dbde22ea4c7002017`
+  전체다. downstream commit이 있으면 먼저 역순으로 되돌린 뒤
+  `git revert -m 1 faa19e2d604cadafd551297dbde22ea4c7002017`로 역변경 commit을 만든다. 이 명령은
+  저장소를 변경하므로 승인된 rollback에서만 실행하고, 일부 224-file 경로만 골라 삭제하지 않는다.
+- 배포 rollback은 위 코드 역변경과 별개로, SHA와 health 결과가 함께 보존된 직전 검증 배포본으로
+  artifact/image 또는 traffic pointer를 복귀한다. mutable branch를 다시 build해 이전 배포본으로
+  간주하지 않는다.
+- 복귀 뒤 backend 전체 test, frontend lint/test/build/smoke, 실제 HTTP health check와 strict browser
+  핵심 흐름을 다시 확인한다. 어느 검증도 과거 head의 결과를 재사용하지 않는다.
+- 이 import는 기존 `V1__initial_schema.sql`을 코드 계보에 포함하지만 이 문서 slice는 DB를 변경하지
+  않는다. rollback 과정에서 DB DROP, volume 삭제 또는 적용된 migration의 파괴적 역실행을 지시하지
+  않으며, 데이터는 보존하고 필요한 schema 조정은 별도 검증된 forward migration으로 처리한다.
