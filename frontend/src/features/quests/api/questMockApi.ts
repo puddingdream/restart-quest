@@ -113,7 +113,7 @@ function createDailyQuests(
     journeyId: `${date}-journey-${index + 1}`,
     status: 'ACTIVE',
     currentQuest: quest,
-    history: [quest],
+    history: [],
   }))
 
   return { date, energyLevel, generatedNow: true, journeys }

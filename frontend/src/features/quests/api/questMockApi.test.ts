@@ -72,6 +72,13 @@ test('feature mock은 empty에서 정확히 세 여정을 만들고 당일 재�
   assert.equal(generated.journeys.length, 3)
   assert.ok(
     generated.journeys.every(
+      ({ currentQuest, history }) =>
+        history.length === 0 &&
+        !history.some(({ id }) => id === currentQuest.id),
+    ),
+  )
+  assert.ok(
+    generated.journeys.every(
       ({ currentQuest }) =>
         currentQuest.completionCriteria.length > 0 &&
         currentQuest.steps.length >= 1 &&
@@ -85,6 +92,7 @@ test('feature mock은 empty에서 정확히 세 여정을 만들고 당일 재�
     reentered.journeys.map(({ journeyId }) => journeyId),
     generated.journeys.map(({ journeyId }) => journeyId),
   )
+  assert.ok(reentered.journeys.every(({ history }) => history.length === 0))
 
   const duplicate = await questMockApi.generate(
     { energyLevel: 'HIGH' },
@@ -93,6 +101,7 @@ test('feature mock은 empty에서 정확히 세 여정을 만들고 당일 재�
   assert.equal(duplicate.generatedNow, false)
   assert.equal(duplicate.energyLevel, 'MEDIUM')
   assert.equal(duplicate.journeys.length, 3)
+  assert.ok(duplicate.journeys.every(({ history }) => history.length === 0))
 })
 
 test('feature mock은 validation 오류를 field error로 구분한다', async () => {

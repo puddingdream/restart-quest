@@ -4,6 +4,7 @@ import type {
   DashboardQuestSummary,
   TodayDashboardResponse,
 } from '../types'
+import type { Quest, QuestJourney } from '../../quests/types'
 
 function getSeoulDate(): string {
   return new Intl.DateTimeFormat('en-CA', {
@@ -43,6 +44,15 @@ function createDemoDashboard(): TodayDashboardResponse {
       },
     ],
   }
+}
+
+function findQuestRevision(
+  journey: QuestJourney | undefined,
+  questId: string,
+): Quest | undefined {
+  if (!journey) return undefined
+  if (journey.currentQuest.id === questId) return journey.currentQuest
+  return journey.history.find(({ id }) => id === questId)
 }
 
 export const dashboardMockApi = {
@@ -90,15 +100,19 @@ export const dashboardMockApi = {
             const journey = stored.plan.journeys.find(
               ({ journeyId }) => journeyId === redesign.journeyId,
             )
-            const original = journey?.history.find(
-              ({ id }) => id === redesign.originalQuestId,
+            const original = findQuestRevision(
+              journey,
+              redesign.originalQuestId,
+            )
+            const replacement = findQuestRevision(
+              journey,
+              redesign.replacementQuestId,
             )
             return {
               redesignId: redesign.id,
               journeyId: redesign.journeyId,
               originalQuestTitle: original?.title ?? '이전 퀘스트',
-              replacementQuestTitle:
-                journey?.currentQuest.title ?? '더 쉬운 퀘스트',
+              replacementQuestTitle: replacement?.title ?? '더 쉬운 퀘스트',
               reasonCode: redesign.reasonCode,
               createdAt: redesign.createdAt,
             }

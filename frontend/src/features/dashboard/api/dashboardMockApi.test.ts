@@ -118,6 +118,16 @@ test('완료와 실패 후 재설계 기록을 실제 mock 대시보드 집계�
     auth.accessToken,
   )
 
+  assert.deepEqual(
+    redesigned.journey.history.map(({ id }) => id),
+    [plan.journeys[1].currentQuest.id],
+  )
+  assert.ok(
+    !redesigned.journey.history.some(
+      ({ id }) => id === redesigned.journey.currentQuest.id,
+    ),
+  )
+
   const dashboard = await dashboardMockApi.getToday(auth.accessToken)
   assert.equal(dashboard.totalJourneys, 3)
   assert.equal(dashboard.completedJourneys, 1)
@@ -128,5 +138,71 @@ test('완료와 실패 후 재설계 기록을 실제 mock 대시보드 집계�
   assert.equal(
     dashboard.recentRedesigns[0]?.replacementQuestTitle,
     redesigned.journey.currentQuest.title,
+  )
+})
+
+test('다중 재설계 기록은 각 ID의 revision title을 유지하고 current quest를 history에서 제외한다', async () => {
+  clearAuthMockSession()
+  clearQuestMockSession()
+  const auth = await authMockApi.signup({
+    email: 'dashboard-multiple-redesigns@example.com',
+    password: 'password123',
+    name: '다중 재설계 사용자',
+  })
+  await onboardingMockApi.upsert(
+    {
+      desiredJob: '프론트엔드 개발자',
+      desiredWorkType: 'FULL_TIME',
+      careerGapMonths: 4,
+      hasResume: true,
+      interviewExperience: 'LIMITED',
+    },
+    auth.accessToken,
+  )
+  const plan = await questMockApi.generate(
+    { energyLevel: 'MEDIUM' },
+    auth.accessToken,
+  )
+  const original = plan.journeys[1].currentQuest
+  const firstRedesign = await questOutcomeMockApi.redesign(
+    original.id,
+    { reasonCode: 'TIME_SHORTAGE' },
+    auth.accessToken,
+  )
+  const firstReplacement = firstRedesign.journey.currentQuest
+  const secondRedesign = await questOutcomeMockApi.redesign(
+    firstReplacement.id,
+    { reasonCode: 'TASK_TOO_LARGE' },
+    auth.accessToken,
+  )
+  const secondReplacement = secondRedesign.journey.currentQuest
+
+  assert.deepEqual(
+    secondRedesign.journey.history.map(({ id }) => id),
+    [original.id, firstReplacement.id],
+  )
+  assert.ok(
+    !secondRedesign.journey.history.some(
+      ({ id }) => id === secondReplacement.id,
+    ),
+  )
+
+  const dashboard = await dashboardMockApi.getToday(auth.accessToken)
+  assert.equal(dashboard.redesignCount, 2)
+  assert.deepEqual(
+    dashboard.recentRedesigns.map(
+      ({ originalQuestTitle, replacementQuestTitle }) => [
+        originalQuestTitle,
+        replacementQuestTitle,
+      ],
+    ),
+    [
+      [firstReplacement.title, secondReplacement.title],
+      [original.title, firstReplacement.title],
+    ],
+  )
+  assert.notEqual(
+    dashboard.recentRedesigns[1]?.replacementQuestTitle,
+    secondReplacement.title,
   )
 })
