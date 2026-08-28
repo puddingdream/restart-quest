@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: restart-quest-backend
+  profiles:
+    default: local
+  http:
+    clients:
+      connect-timeout: 3s
+      read-timeout: 10s
+  jpa:
+    open-in-view: false
+server:
+  error:
+    include-message: never
+    include-stacktrace: never
+restartquest:
+  ai:
+    provider: deterministic
+  auth:
+    token-ttl: PT24H
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}

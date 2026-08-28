@@ -53,4 +53,54 @@ Re:Start Quest는 기능 많은 취업 종합 앱이 아니라, 실패 후에도
 
 - [인수인계 문서](docs/RESTART_QUEST_HANDOFF.md)
 - [제품 방향성](docs/PRODUCT_DIRECTION.md)
+- [MVP 구현 정본](docs/MVP_IMPLEMENTATION_BLUEPRINT.md)
+- [API 계약](docs/api/quest-api.md)
 - [코드 품질 가드레일](docs/CODE_QUALITY_GUARDRAILS.md)
+- [QA 기준](docs/agents/ROLE_QA.md)
+- [Reviewer 기준](docs/agents/ROLE_REVIEWER.md)
+- [Merge 정책](docs/workflow/MERGE_POLICY.md)
+
+## 로컬 실행
+
+필수 환경은 Java 17과 Node.js 20 이상입니다. 로컬 백엔드는 별도 DB 설치 없이
+파일 기반 H2를 사용하며 데이터는 Git에 포함되지 않는 `backend/.data/`에 저장됩니다.
+
+```bash
+# terminal 1
+cd backend
+./gradlew bootRun
+
+# terminal 2
+cd frontend
+npm ci
+npm run dev
+```
+
+Windows PowerShell에서는 백엔드를 `./gradlew.bat bootRun`으로 실행합니다. 프론트 개발
+서버는 `/api` 요청을 `http://localhost:8080`으로 전달합니다.
+
+## 검증
+
+```bash
+cd backend
+./gradlew test
+
+cd ../frontend
+npm ci
+npm run lint
+npm test
+npm run build
+E2E_REQUIRE_BROWSER=1 npm run e2e
+```
+
+브라우저 E2E는 실제 Spring Boot 서버와 HTTP 모드 프론트를 실행해 `회원가입 -> 온보딩
+-> 퀘스트 3개 생성 -> 완료 -> 이유 기반 재설계 -> 대시보드 반영`을 검증합니다. 생성된
+스크린샷과 로컬 DB는 테스트 증거일 뿐 Git에는 포함하지 않습니다.
+
+## 운영 프로필
+
+운영에서는 `SPRING_PROFILES_ACTIVE=prod`를 지정하고 `DB_URL`, `DB_USERNAME`,
+`DB_PASSWORD`를 환경 변수로 주입합니다. 스키마는 Flyway migration으로 적용하고 JPA는
+`validate`만 수행합니다. 실제 AI provider를 연결할 때는 `AI_PROVIDER=runtime`과 provider
+설정 `AI_PROVIDER_BASE_URL`, `AI_PROVIDER_API_KEY`를 환경에서 주입하며 비밀 값은 문서나
+로그에 남기지 않습니다.

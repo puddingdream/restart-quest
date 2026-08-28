@@ -1,0 +1,104 @@
+:root {
+  font-family: Pretendard, 'Noto Sans KR', 'Segoe UI', sans-serif;
+  color: #17332e;
+  background: #f4f1e9;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --ink: #17332e;
+  --deep: #102d29;
+  --muted: #64736f;
+  --line: #d9ded9;
+  --paper: #fffdf8;
+  --canvas: #f4f1e9;
+  --accent: #cf4b24;
+  --accent-soft: #f7dfd5;
+  --mint: #b9d8cc;
+  --danger: #9d2d1b;
+  --danger-soft: #fff0eb;
+  --shadow: 0 24px 70px rgba(16, 45, 41, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background: var(--canvas);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+a {
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled,
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+:focus-visible {
+  outline: 3px solid rgba(207, 75, 36, 0.35);
+  outline-offset: 3px;
+}
+
+.brand {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 600;
+  text-decoration: none;
+  letter-spacing: -0.02em;
+}
+
+.brand strong {
+  color: var(--accent);
+}
+
+.brand-mark {
+  display: inline-grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border-radius: 50% 50% 50% 16%;
+  color: #fff;
+  background: var(--accent);
+  font-family: 'Segoe UI', sans-serif;
+  font-weight: 700;
+}
+
+.eyebrow {
+  margin: 0 0 0.8rem;
+  color: var(--accent);
+  font-family: 'Segoe UI', 'Noto Sans KR', sans-serif;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
