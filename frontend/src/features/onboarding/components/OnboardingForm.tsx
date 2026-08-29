@@ -107,8 +107,9 @@ export function OnboardingForm({
               step={1}
               value={values.careerGapMonths}
               onChange={(event) =>
-                updateField('careerGapMonths', Number(event.target.value))
+                updateField('careerGapMonths', event.target.value)
               }
+              required
               aria-invalid={Boolean(errors.careerGapMonths)}
               aria-describedby={
                 errors.careerGapMonths ? 'careerGapMonths-error' : undefined

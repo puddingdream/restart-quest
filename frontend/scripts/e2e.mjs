@@ -3,6 +3,11 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { launchBrowser } from './e2e/headlessBrowser.mjs'
 import { runCommand, startBackend, startFrontendServer } from './e2e/localStack.mjs'
+import { combinePrimaryAndCleanup } from './e2e/browserProcess.mjs'
+import {
+  fillFormValue,
+  fillOnboardingHappyPath,
+} from './e2e/onboardingFlow.mjs'
 
 const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const repoRoot = path.resolve(frontendRoot, '..')
@@ -29,20 +34,6 @@ async function buildFrontendForHttp() {
     cwd: frontendRoot,
     env: { VITE_API_MODE: 'http' },
   })
-}
-
-function fill(selector, value) {
-  return `(() => {
-    const element = document.querySelector(${JSON.stringify(selector)});
-    if (!element) return false;
-    const prototype = element instanceof HTMLTextAreaElement
-      ? HTMLTextAreaElement.prototype
-      : HTMLInputElement.prototype;
-    Object.getOwnPropertyDescriptor(prototype, 'value').set.call(element, ${JSON.stringify(value)});
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
-  })()`
 }
 
 async function expectApiErrors(backendBaseUrl) {
@@ -174,9 +165,9 @@ async function runBrowserFlow(page, baseUrl) {
   const email = `core-flow-${Date.now()}@example.test`
   await page.goto(`${baseUrl}/signup`)
   await page.waitFor("document.querySelector('#name')", '회원가입 폼')
-  await page.evaluate(fill('#name', '다시 시작'))
-  await page.evaluate(fill('#email', email))
-  await page.evaluate(fill('#password', 'safe-e2e-password'))
+  await fillFormValue(page, '#name', '다시 시작')
+  await fillFormValue(page, '#email', email)
+  await fillFormValue(page, '#password', 'safe-e2e-password')
   await page.evaluate("document.querySelector('form').requestSubmit()")
 
   await page.waitFor("location.pathname === '/onboarding' && document.querySelector('#desiredJob')", '온보딩 이동')
@@ -187,8 +178,7 @@ async function runBrowserFlow(page, baseUrl) {
     })()`),
     true,
   )
-  await page.evaluate(fill('#desiredJob', '프론트엔드 개발자'))
-  await page.evaluate(fill('#region', '서울 또는 원격'))
+  await fillOnboardingHappyPath(page)
   await page.evaluate("document.querySelector('form').requestSubmit()")
 
   await page.waitFor("location.pathname === '/today' && document.querySelector('input[name=energyLevel]')", '오늘 퀘스트 이동')
@@ -211,7 +201,11 @@ async function runBrowserFlow(page, baseUrl) {
   await page.evaluate("[...document.querySelectorAll('.quest-card')[1].querySelectorAll('button')].find((button) => button.textContent.includes('더 작게')).click()")
   await page.waitFor("document.querySelector('[role=dialog]')", '재설계 dialog')
   await page.evaluate("document.querySelector('input[name=reasonCode][value=TASK_TOO_LARGE]').click()")
-  await page.evaluate(fill('[role=dialog] textarea', '오늘은 첫 단계만 이어가고 싶어요.'))
+  await fillFormValue(
+    page,
+    '[role=dialog] textarea',
+    '오늘은 첫 단계만 이어가고 싶어요.',
+  )
   await page.evaluate("document.querySelector('[role=dialog] form').requestSubmit()")
   await page.waitFor("!document.querySelector('[role=dialog]') && document.querySelectorAll('.quest-card')[1].querySelector('h2').textContent.includes('한 조각만 끝내기')", '이유 기반 재설계')
 
@@ -257,6 +251,7 @@ async function runBrowserFlow(page, baseUrl) {
 let backend
 let frontend
 let browser
+let primaryError = null
 try {
   await buildFrontendForHttp()
   backend = await startBackend(repoRoot)
@@ -274,16 +269,26 @@ try {
     await runBrowserFlow(browser.page, frontend.baseUrl)
     console.log('Core flow E2E passed in browser: auth, onboarding, 3 journeys, completion, redesign, refresh consistency, typed errors, desktop/mobile screenshots')
   }
-} finally {
-  const cleanupResults = await Promise.allSettled([
-    browser?.stop(),
-    frontend?.stop(),
-    backend?.stop(),
-  ])
-  for (const result of cleanupResults) {
-    if (result.status === 'rejected') {
-      console.error(`E2E 자원 정리 실패: ${result.reason}`)
-      process.exitCode = 1
-    }
-  }
+} catch (error) {
+  primaryError = error
+}
+
+const cleanupResults = await Promise.allSettled([
+  browser?.stop(),
+  frontend?.stop(),
+  backend?.stop(),
+])
+const cleanupErrors = cleanupResults.flatMap((result) =>
+  result.status === 'rejected' ? [result.reason] : [],
+)
+const cleanupError =
+  cleanupErrors.length > 1
+    ? new AggregateError(cleanupErrors, 'E2E 자원 정리에 실패했습니다.')
+    : cleanupErrors[0]
+
+if (primaryError) {
+  throw combinePrimaryAndCleanup(primaryError, cleanupError)
+}
+if (cleanupError) {
+  throw cleanupError
 }

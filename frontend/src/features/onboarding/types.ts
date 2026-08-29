@@ -19,7 +19,7 @@ export interface OnboardingFormValues {
   desiredJob: string
   region: string
   desiredWorkType: DesiredWorkType
-  careerGapMonths: number
+  careerGapMonths: string
   hasResume: boolean
   interviewExperience: InterviewExperience
 }

@@ -1,56 +1,17 @@
-import { spawn } from 'node:child_process'
-import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import os from 'node:os'
+import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { getFreePort } from './localStack.mjs'
-
-const BROWSER_TIMEOUT_MS = 15_000
-
-async function firstAvailable(paths) {
-  for (const candidate of paths) {
-    if (!candidate) continue
-    try {
-      await access(candidate)
-      return candidate
-    } catch {
-      // 다음 설치 위치를 확인한다.
-    }
-  }
-  throw new Error('Chrome 또는 Edge 실행 파일을 찾지 못했습니다. CHROME_PATH를 지정해 주세요.')
-}
-
-async function browserExecutable() {
-  if (process.platform === 'win32') {
-    return firstAvailable([
-      process.env.CHROME_PATH,
-      path.join(process.env.ProgramFiles ?? '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-      path.join(process.env['ProgramFiles(x86)'] ?? '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-      path.join(process.env.LOCALAPPDATA ?? '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-    ])
-  }
-  return firstAvailable([
-    process.env.CHROME_PATH,
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-  ])
-}
-
-async function waitForPage(port, child) {
-  const deadline = Date.now() + BROWSER_TIMEOUT_MS
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error('headless browser가 준비되기 전에 종료되었습니다.')
-    try {
-      const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json())
-      const page = targets.find((target) => target.type === 'page')
-      if (page?.webSocketDebuggerUrl) return page.webSocketDebuggerUrl
-    } catch {
-      // DevTools endpoint가 준비될 때까지 재시도한다.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100))
-  }
-  throw new Error('headless browser 준비 시간이 초과되었습니다.')
-}
+import {
+  browserLaunchArgs,
+  browserProcessDiagnostics,
+  browserRuntimeFailure,
+  cleanupBrowserResources,
+  combinePrimaryAndCleanup,
+  createBrowserProfile,
+  redactBrowserArgs,
+  selectBrowserExecutable,
+  spawnBrowserProcess,
+} from './browserProcess.mjs'
+import { waitForDevTools } from './devToolsEndpoint.mjs'
 
 class CdpPage {
   constructor(webSocketUrl) {
@@ -143,52 +104,100 @@ class CdpPage {
   }
 }
 
-export async function launchBrowser() {
-  const port = await getFreePort()
-  const profileDirectory = await mkdtemp(path.join(os.tmpdir(), 'restart-quest-e2e-'))
-  const child = spawn(await browserExecutable(), [
-    '--headless=new',
-    '--disable-background-networking',
-    '--disable-default-apps',
-    '--disable-extensions',
-    '--disable-gpu',
-    '--no-first-run',
-    '--no-default-browser-check',
-    `--remote-debugging-port=${port}`,
-    `--user-data-dir=${profileDirectory}`,
-    '--window-size=1440,1000',
-    'about:blank',
-  ], { stdio: 'ignore' })
-  let page
+function errorWithDiagnostics(error, diagnostics) {
+  const message = error instanceof Error ? error.message : String(error)
+  return new Error(`${message}\n${diagnostics}`, { cause: error })
+}
+
+export async function launchBrowser(overrides = {}) {
+  const platform = overrides.platform ?? process.platform
+  const env = overrides.env ?? process.env
+  const selectExecutable =
+    overrides.selectExecutable ?? selectBrowserExecutable
+  const createProfile = overrides.createProfile ?? createBrowserProfile
+  const spawnProcess = overrides.spawnProcess ?? spawnBrowserProcess
+  const awaitDevTools = overrides.awaitDevTools ?? waitForDevTools
+  const createPage = overrides.createPage ?? ((url) => new CdpPage(url))
+  const cleanup = overrides.cleanup ?? cleanupBrowserResources
+  const logger = overrides.logger ?? console
+
+  let profileDirectory
+  let processInfo
+  let selection
+  let args
   try {
-    page = new CdpPage(await waitForPage(port, child))
+    selection = await selectExecutable({ platform, env })
+    profileDirectory = await createProfile()
+    args = browserLaunchArgs({ platform, env, profileDirectory })
+    logger.info(
+      `[e2e/browser] selected=${selection.source}:${path.basename(
+        selection.executable,
+      )} candidates=${selection.checked
+        .map(({ source, result }) => `${source}:${result}`)
+        .join(',')} platform=${platform} ` +
+        `profile=created,canonical,temporary args=${redactBrowserArgs(args).join(' ')}`,
+    )
+    processInfo = spawnProcess(selection.executable, args, { platform })
+    const webSocketUrl = await awaitDevTools({
+      profileDirectory,
+      childState: processInfo.state,
+      getRuntimeFailure: () => browserRuntimeFailure(processInfo.stderr),
+    })
+    const page = createPage(webSocketUrl)
     await page.connect()
     await page.setViewport(1440, 1000)
-  } catch (error) {
-    if (child.exitCode === null) child.kill()
-    await rm(profileDirectory, { recursive: true, force: true })
-    throw error
-  }
-  return {
-    page,
-    stop: async () => {
-      page.close()
-      if (child.exitCode === null) child.kill()
-      await new Promise((resolve) => {
-        if (child.exitCode !== null) {
-          resolve()
-          return
+
+    let stopped = false
+    return {
+      page,
+      stop: async () => {
+        if (stopped) return
+        stopped = true
+        let pageError = null
+        try {
+          page.close()
+        } catch (error) {
+          pageError = error
         }
-        const timeout = setTimeout(() => {
-          if (child.exitCode === null) child.kill('SIGKILL')
-        }, 2_000)
-        child.once('exit', () => {
-          clearTimeout(timeout)
-          resolve()
-        })
-        setTimeout(resolve, 4_000)
-      })
-      await rm(profileDirectory, { recursive: true, force: true })
-    },
+        let cleanupError = null
+        try {
+          await cleanup({ child: processInfo.child, profileDirectory })
+        } catch (error) {
+          cleanupError = error
+        }
+        if (pageError) throw combinePrimaryAndCleanup(pageError, cleanupError)
+        if (cleanupError) throw cleanupError
+      },
+    }
+  } catch (error) {
+    const canDescribeLaunch = Boolean(selection && args)
+    const diagnosticState = processInfo?.state ?? {
+      spawnError: error instanceof Error ? error : new Error(String(error)),
+      exitCode: null,
+      signal: null,
+    }
+    const primary = canDescribeLaunch
+      ? errorWithDiagnostics(
+          error,
+          browserProcessDiagnostics({
+            platform,
+            selection,
+            args,
+            profileDirectory,
+            stdout: processInfo?.stdout,
+            stderr: processInfo?.stderr,
+            state: diagnosticState,
+          }),
+        )
+      : error
+    let cleanupError = null
+    try {
+      if (profileDirectory) {
+        await cleanup({ child: processInfo?.child, profileDirectory })
+      }
+    } catch (cleanupFailure) {
+      cleanupError = cleanupFailure
+    }
+    throw combinePrimaryAndCleanup(primary, cleanupError)
   }
 }

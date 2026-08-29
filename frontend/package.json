@@ -8,7 +8,7 @@
     "lint": "eslint . --max-warnings=0",
     "smoke": "node scripts/smoke.mjs",
     "e2e": "node scripts/e2e.mjs",
-    "test": "node scripts/clean-test-output.mjs && tsc -p tsconfig.test.json && node --test --test-isolation=none .test-dist/**/*.test.js",
+    "test": "node --test --test-isolation=none scripts/e2e/*.test.mjs && node scripts/clean-test-output.mjs && tsc -p tsconfig.test.json && node --test --test-isolation=none .test-dist/**/*.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

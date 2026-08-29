@@ -17,7 +17,7 @@ const INITIAL_VALUES: OnboardingFormValues = {
   desiredJob: '',
   region: '',
   desiredWorkType: 'ANY',
-  careerGapMonths: 0,
+  careerGapMonths: '',
   hasResume: false,
   interviewExperience: 'NONE',
 }
@@ -46,7 +46,7 @@ export function useOnboardingForm({ onSaved }: UseOnboardingFormOptions) {
           desiredJob: profile.desiredJob,
           region: profile.region ?? '',
           desiredWorkType: profile.desiredWorkType,
-          careerGapMonths: profile.careerGapMonths,
+          careerGapMonths: String(profile.careerGapMonths),
           hasResume: profile.hasResume,
           interviewExperience: profile.interviewExperience,
         })
@@ -84,10 +84,13 @@ export function useOnboardingForm({ onSaved }: UseOnboardingFormOptions) {
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
 
+    const request = toOnboardingRequest(values)
+    if (!request) return
+
     setIsSubmitting(true)
     setApiError(null)
     try {
-      await onboardingApi.upsert(toOnboardingRequest(values))
+      await onboardingApi.upsert(request)
       onSaved()
     } catch (error) {
       if (isSessionExpired(error)) {

@@ -9,6 +9,18 @@ export type OnboardingErrors = Partial<
   Record<keyof OnboardingFormValues, string>
 >
 
+const CAREER_GAP_MONTHS_PATTERN = /^\d+$/
+
+export function parseCareerGapMonths(value: string): number | null {
+  const normalized = value.trim()
+  if (!CAREER_GAP_MONTHS_PATTERN.test(normalized)) return null
+
+  const months = Number(normalized)
+  return Number.isInteger(months) && months >= 0 && months <= 600
+    ? months
+    : null
+}
+
 export function validateOnboarding(
   values: OnboardingFormValues,
 ): OnboardingErrors {
@@ -23,11 +35,9 @@ export function validateOnboarding(
   if (!DESIRED_WORK_TYPES.includes(values.desiredWorkType)) {
     errors.desiredWorkType = '희망 근무 형태를 선택해 주세요.'
   }
-  if (
-    !Number.isInteger(values.careerGapMonths) ||
-    values.careerGapMonths < 0 ||
-    values.careerGapMonths > 600
-  ) {
+  if (values.careerGapMonths.trim().length === 0) {
+    errors.careerGapMonths = '공백 기간을 입력해 주세요.'
+  } else if (parseCareerGapMonths(values.careerGapMonths) === null) {
     errors.careerGapMonths = '공백 기간은 0~600개월의 정수로 입력해 주세요.'
   }
   if (!INTERVIEW_EXPERIENCES.includes(values.interviewExperience)) {
@@ -38,13 +48,16 @@ export function validateOnboarding(
 
 export function toOnboardingRequest(
   values: OnboardingFormValues,
-): OnboardingRequest {
+): OnboardingRequest | null {
+  const careerGapMonths = parseCareerGapMonths(values.careerGapMonths)
+  if (careerGapMonths === null) return null
+
   const region = values.region.trim()
   return {
     desiredJob: values.desiredJob.trim(),
     ...(region ? { region } : {}),
     desiredWorkType: values.desiredWorkType,
-    careerGapMonths: values.careerGapMonths,
+    careerGapMonths,
     hasResume: values.hasResume,
     interviewExperience: values.interviewExperience,
   }
