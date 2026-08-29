@@ -5,6 +5,93 @@ import path from 'node:path'
 import { getFreePort } from './localStack.mjs'
 
 const BROWSER_TIMEOUT_MS = 15_000
+const BROWSER_CLOSE_TIMEOUT_MS = 1_000
+const BROWSER_EXIT_TIMEOUT_MS = 4_000
+const PROFILE_REMOVE_MAX_RETRIES = 10
+const PROFILE_REMOVE_RETRY_DELAY_MS = 250
+
+function waitForExit(child, timeoutMs) {
+  if (child.exitCode !== null) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      child.off('exit', onExit)
+      resolve(false)
+    }, timeoutMs)
+    const onExit = () => {
+      clearTimeout(timeout)
+      resolve(true)
+    }
+    child.once('exit', onExit)
+  })
+}
+
+async function terminateBrowserProcess(child) {
+  if (child.exitCode !== null) return
+  if (process.platform === 'win32' && child.pid) {
+    await new Promise((resolve) => {
+      const killer = spawn(
+        'taskkill.exe',
+        ['/pid', String(child.pid), '/t', '/f'],
+        { stdio: 'ignore' },
+      )
+      killer.once('error', resolve)
+      killer.once('exit', resolve)
+    })
+  } else {
+    child.kill()
+  }
+  if (await waitForExit(child, BROWSER_EXIT_TIMEOUT_MS)) return
+  if (child.exitCode === null) child.kill('SIGKILL')
+  if (!(await waitForExit(child, BROWSER_EXIT_TIMEOUT_MS))) {
+    throw new Error(`headless browser 프로세스(PID ${child.pid})를 종료하지 못했습니다.`)
+  }
+}
+
+export function removeBrowserProfile(profileDirectory, remove = rm) {
+  return remove(profileDirectory, {
+    recursive: true,
+    force: true,
+    maxRetries: PROFILE_REMOVE_MAX_RETRIES,
+    retryDelay: PROFILE_REMOVE_RETRY_DELAY_MS,
+  })
+}
+
+export function browserLaunchArgs(port, profileDirectory) {
+  return [
+    '--headless=new',
+    '--disable-background-networking',
+    '--disable-default-apps',
+    '--disable-extensions',
+    '--disable-gpu',
+    '--disable-spell-checking',
+    '--no-first-run',
+    '--no-default-browser-check',
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${profileDirectory}`,
+    '--window-size=1440,1000',
+    'about:blank',
+  ]
+}
+
+export async function requestBrowserShutdown(
+  page,
+  timeoutMs = BROWSER_CLOSE_TIMEOUT_MS,
+) {
+  let timeout
+  try {
+    await Promise.race([
+      Promise.resolve()
+        .then(() => page.send('Browser.close'))
+        .catch(() => undefined),
+      new Promise((resolve) => {
+        timeout = setTimeout(resolve, timeoutMs)
+      }),
+    ])
+  } finally {
+    clearTimeout(timeout)
+    page.close()
+  }
+}
 
 async function firstAvailable(paths) {
   for (const candidate of paths) {
@@ -146,49 +233,27 @@ class CdpPage {
 export async function launchBrowser() {
   const port = await getFreePort()
   const profileDirectory = await mkdtemp(path.join(os.tmpdir(), 'restart-quest-e2e-'))
-  const child = spawn(await browserExecutable(), [
-    '--headless=new',
-    '--disable-background-networking',
-    '--disable-default-apps',
-    '--disable-extensions',
-    '--disable-gpu',
-    '--no-first-run',
-    '--no-default-browser-check',
-    `--remote-debugging-port=${port}`,
-    `--user-data-dir=${profileDirectory}`,
-    '--window-size=1440,1000',
-    'about:blank',
-  ], { stdio: 'ignore' })
+  const child = spawn(
+    await browserExecutable(),
+    browserLaunchArgs(port, profileDirectory),
+    { stdio: 'ignore' },
+  )
   let page
   try {
     page = new CdpPage(await waitForPage(port, child))
     await page.connect()
     await page.setViewport(1440, 1000)
   } catch (error) {
-    if (child.exitCode === null) child.kill()
-    await rm(profileDirectory, { recursive: true, force: true })
+    await terminateBrowserProcess(child)
+    await removeBrowserProfile(profileDirectory)
     throw error
   }
   return {
     page,
     stop: async () => {
-      page.close()
-      if (child.exitCode === null) child.kill()
-      await new Promise((resolve) => {
-        if (child.exitCode !== null) {
-          resolve()
-          return
-        }
-        const timeout = setTimeout(() => {
-          if (child.exitCode === null) child.kill('SIGKILL')
-        }, 2_000)
-        child.once('exit', () => {
-          clearTimeout(timeout)
-          resolve()
-        })
-        setTimeout(resolve, 4_000)
-      })
-      await rm(profileDirectory, { recursive: true, force: true })
+      await requestBrowserShutdown(page)
+      await terminateBrowserProcess(child)
+      await removeBrowserProfile(profileDirectory)
     },
   }
 }

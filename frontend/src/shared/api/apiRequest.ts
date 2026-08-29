@@ -1,12 +1,7 @@
 import { ApiError, type FieldError } from './ApiError'
+import { resolveApiMode } from './apiMode'
+import { createApiUrl } from './apiUrl'
 import { getAccessToken } from '../auth/sessionToken'
-
-const API_BASE_PATH = '/api/v1'
-
-function apiUrl(path: string): string {
-  const configuredBase = import.meta.env?.VITE_API_BASE_URL?.replace(/\/$/, '')
-  return `${configuredBase ?? ''}${API_BASE_PATH}${path}`
-}
 
 interface MockRequestContext {
   accessToken: string | null
@@ -72,28 +67,33 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const method = options.method ?? 'GET'
   const accessToken = getAccessToken()
-  const apiMode =
-    import.meta.env?.VITE_API_MODE ??
-    document
-      .querySelector<HTMLMetaElement>('meta[name="restart-quest-api-mode"]')
-      ?.getAttribute('content')
+  const documentMode =
+    typeof document === 'undefined'
+      ? undefined
+      : document
+          .querySelector<HTMLMetaElement>('meta[name="restart-quest-api-mode"]')
+          ?.getAttribute('content')
+  const apiMode = resolveApiMode(import.meta.env?.VITE_API_MODE, documentMode)
 
-  if (apiMode !== 'http') {
+  if (apiMode === 'mock') {
     if (!options.mock) {
       throw new ApiError(404, 'NOT_FOUND', '요청한 기능을 찾을 수 없습니다.')
     }
     return options.mock({ accessToken })
   }
 
-  const response = await fetch(apiUrl(path), {
-    method,
-    headers: {
-      Accept: 'application/json',
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+  const response = await fetch(
+    createApiUrl(path, import.meta.env?.VITE_API_BASE_URL),
+    {
+      method,
+      headers: {
+        Accept: 'application/json',
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
     },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  })
+  )
 
   if (!response.ok) throw await toApiError(response)
   if (response.status === 204) return undefined as T

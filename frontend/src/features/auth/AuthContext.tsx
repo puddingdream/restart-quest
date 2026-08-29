@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import { authApi } from './api/authApi'
-import { ApiError } from '../../shared/api/ApiError'
+import { isSessionExpired } from '../../shared/api/ApiError'
 import type { AuthUser, LoginInput, SignupInput } from './types'
 import {
   clearAccessToken,
@@ -59,7 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .catch((error: unknown) => {
         if (!active) return
-        if (error instanceof ApiError && [401, 403].includes(error.status)) {
+        if (isSessionExpired(error)) {
           expireSession()
           return
         }

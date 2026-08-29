@@ -3,17 +3,24 @@ import { getApiErrorMessage } from '../../../shared/api/ApiError'
 import { AppLink } from '../../../app/components/AppLink'
 import { Brand } from '../../../app/components/Brand'
 import { useAuth } from '../AuthContext'
-import { AuthForm, type AuthFormValues } from '../components/AuthForm'
+import { AuthForm } from '../components/AuthForm'
+import type { AuthFormValues } from '../types'
+import {
+  getAuthFieldErrors,
+  type AuthFormErrors,
+} from '../validation'
 
 export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
   const { login, signup } = useAuth()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [apiError, setApiError] = useState<string | null>(null)
+  const [apiFieldErrors, setApiFieldErrors] = useState<AuthFormErrors>({})
   const isSignup = mode === 'signup'
 
   async function handleSubmit(values: AuthFormValues) {
     setIsSubmitting(true)
     setApiError(null)
+    setApiFieldErrors({})
     try {
       if (isSignup) {
         await signup({
@@ -28,10 +35,21 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
         })
       }
     } catch (error) {
+      setApiFieldErrors(getAuthFieldErrors(error, mode))
       setApiError(getApiErrorMessage(error))
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  function clearApiFieldError(field: keyof AuthFormValues) {
+    setApiError(null)
+    setApiFieldErrors((current) => {
+      if (!current[field]) return current
+      const next = { ...current }
+      delete next[field]
+      return next
+    })
   }
 
   return (
@@ -75,7 +93,9 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
             mode={mode}
             isSubmitting={isSubmitting}
             apiError={apiError}
+            apiFieldErrors={apiFieldErrors}
             onSubmit={handleSubmit}
+            onFieldChange={clearApiFieldError}
           />
 
           <p className="auth-switch">

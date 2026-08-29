@@ -1,45 +1,26 @@
 import { useState, type FormEvent } from 'react'
-
-export interface AuthFormValues {
-  email: string
-  password: string
-  name: string
-}
+import type { AuthFormValues } from '../types'
+import {
+  validateAuthForm,
+  type AuthFormErrors,
+} from '../validation'
 
 interface AuthFormProps {
   mode: 'login' | 'signup'
   isSubmitting: boolean
   apiError: string | null
+  apiFieldErrors?: AuthFormErrors
   onSubmit: (values: AuthFormValues) => Promise<void>
-}
-
-type AuthFormErrors = Partial<Record<keyof AuthFormValues, string>>
-
-function validate(
-  values: AuthFormValues,
-  mode: AuthFormProps['mode'],
-): AuthFormErrors {
-  const errors: AuthFormErrors = {}
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim())) {
-    errors.email = '이메일 형식을 확인해 주세요.'
-  }
-  if (values.password.length < 8 || values.password.length > 72) {
-    errors.password = '비밀번호는 8~72자로 입력해 주세요.'
-  }
-  if (mode === 'signup') {
-    const nameLength = values.name.trim().length
-    if (nameLength < 2 || nameLength > 40) {
-      errors.name = '이름은 2~40자로 입력해 주세요.'
-    }
-  }
-  return errors
+  onFieldChange?: (field: keyof AuthFormValues) => void
 }
 
 export function AuthForm({
   mode,
   isSubmitting,
   apiError,
+  apiFieldErrors = {},
   onSubmit,
+  onFieldChange,
 }: AuthFormProps) {
   const [values, setValues] = useState<AuthFormValues>({
     email: '',
@@ -47,10 +28,20 @@ export function AuthForm({
     name: '',
   })
   const [errors, setErrors] = useState<AuthFormErrors>({})
+  const visibleErrors = { ...apiFieldErrors, ...errors }
+
+  function updateField<K extends keyof AuthFormValues>(
+    field: K,
+    value: AuthFormValues[K],
+  ) {
+    setValues((current) => ({ ...current, [field]: value }))
+    setErrors((current) => ({ ...current, [field]: undefined }))
+    onFieldChange?.(field)
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const nextErrors = validate(values, mode)
+    const nextErrors = validateAuthForm(values, mode)
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
     await onSubmit(values)
@@ -75,17 +66,15 @@ export function AuthForm({
             name="name"
             autoComplete="name"
             value={values.name}
-            onChange={(event) =>
-              setValues((current) => ({ ...current, name: event.target.value }))
-            }
-            aria-invalid={Boolean(errors.name)}
-            aria-describedby={errors.name ? 'name-error' : undefined}
+            onChange={(event) => updateField('name', event.target.value)}
+            aria-invalid={Boolean(visibleErrors.name)}
+            aria-describedby={visibleErrors.name ? 'name-error' : undefined}
             maxLength={40}
             disabled={isSubmitting}
           />
-          {errors.name && (
+          {visibleErrors.name && (
             <p className="field-error" id="name-error">
-              {errors.name}
+              {visibleErrors.name}
             </p>
           )}
         </div>
@@ -101,16 +90,14 @@ export function AuthForm({
           autoComplete="email"
           placeholder="name@example.com"
           value={values.email}
-          onChange={(event) =>
-            setValues((current) => ({ ...current, email: event.target.value }))
-          }
-          aria-invalid={Boolean(errors.email)}
-          aria-describedby={errors.email ? 'email-error' : undefined}
+          onChange={(event) => updateField('email', event.target.value)}
+          aria-invalid={Boolean(visibleErrors.email)}
+          aria-describedby={visibleErrors.email ? 'email-error' : undefined}
           disabled={isSubmitting}
         />
-        {errors.email && (
+        {visibleErrors.email && (
           <p className="field-error" id="email-error">
-            {errors.email}
+            {visibleErrors.email}
           </p>
         )}
       </div>
@@ -124,18 +111,18 @@ export function AuthForm({
           autoComplete={isSignup ? 'new-password' : 'current-password'}
           placeholder="8자 이상 입력해 주세요"
           value={values.password}
-          onChange={(event) =>
-            setValues((current) => ({ ...current, password: event.target.value }))
+          onChange={(event) => updateField('password', event.target.value)}
+          aria-invalid={Boolean(visibleErrors.password)}
+          aria-describedby={
+            visibleErrors.password ? 'password-error' : undefined
           }
-          aria-invalid={Boolean(errors.password)}
-          aria-describedby={errors.password ? 'password-error' : undefined}
           minLength={8}
           maxLength={72}
           disabled={isSubmitting}
         />
-        {errors.password && (
+        {visibleErrors.password && (
           <p className="field-error" id="password-error">
-            {errors.password}
+            {visibleErrors.password}
           </p>
         )}
       </div>

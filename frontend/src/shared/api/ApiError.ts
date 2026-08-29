@@ -26,6 +26,7 @@ const SAFE_MESSAGES: Record<string, string> = {
   EMAIL_ALREADY_EXISTS: '이미 사용 중인 이메일입니다.',
   INVALID_CREDENTIALS: '이메일 또는 비밀번호를 확인해 주세요.',
   SESSION_EXPIRED: '로그인 시간이 만료되었습니다. 다시 로그인해 주세요.',
+  INVALID_INPUT: '입력한 내용을 다시 확인해 주세요.',
   VALIDATION_ERROR: '입력한 내용을 다시 확인해 주세요.',
   ONBOARDING_NOT_FOUND: '아직 작성한 온보딩 정보가 없습니다.',
 }

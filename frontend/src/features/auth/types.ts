@@ -18,3 +18,9 @@ export interface AuthResponse {
   accessToken: string
   user: AuthUser
 }
+
+export interface AuthFormValues {
+  email: string
+  password: string
+  name: string
+}
