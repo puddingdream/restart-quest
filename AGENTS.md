@@ -1,61 +1,28 @@
-# Re:Start Quest Agent Rules
+# Workspace Agent Rules
 
 ## Language
 
-- 기본 문서와 PR 설명은 한국어로 작성한다.
-- 코드 식별자는 영어를 사용한다.
+- 사용자 보고, 설계 문서, PR 설명은 한국어로 작성한다.
+- 코드 식별자는 해당 기술 생태계의 관례를 따른다.
 
-## Product Direction
+## Baseline
 
-- 이 프로젝트는 취업 종합 앱이 아니라 구직 행동 재진입 엔진이다.
-- 핵심 경험은 `온보딩 -> 오늘의 퀘스트 생성 -> 실패 이유 입력 -> 더 쉬운 퀘스트 재설계 -> 대시보드 반영`이다.
-- 정신건강 상담, 치료, 감시, 의지 평가 서비스처럼 보이게 만들지 않는다.
-- 실제 채용 사이트 크롤링은 MVP 범위가 아니다. 더미 공고와 사용자가 저장한 공고부터 시작한다.
+- 작업 전에 `README.md`, `docs/PROJECT_BRIEF.md`, 현재 추적 파일과 `git log`를 확인한다.
+- 원격의 과거 `agentflow/*` 브랜치, 닫힌 PR, Task 보고서, 후보 SHA를 자동으로 재사용하지 않는다.
+- 재사용이 필요하면 현재 `main`에 포함된 자산만 기본 신뢰한다. 그 밖의 자산은 Director가 출처와 head SHA를 명시적으로 승인해야 한다.
+- 문서에 없는 구현이 이미 존재한다고 가정하지 않는다.
 
-## Maintainability Rules
+## Delivery
 
-- 한 파일에 모든 로직을 몰아넣지 않는다.
-- 줄 수는 강제 분리 기준이 아니라 책임 분리 필요성을 의심하는 신호로만 사용한다.
-- 파일이 300줄을 넘으면 책임이 섞였는지 검토한다.
-- 파일이 450줄을 넘는 변경은 reviewer가 기본적으로 분리 계획을 요구한다. 단, 하나의 책임으로 응집되어 있고 분리하면 오히려 추적성이 떨어지는 경우는 PR 본문에 근거를 남기면 허용한다.
-- 하나의 PR은 하나의 목적만 가진다. 프론트, 백엔드, 문서, 인프라 변경이 섞이면 이유를 PR 본문에 적는다.
-- 큰 기능은 도메인, API 계약, UI 흐름, 테스트를 작은 work item으로 나눈다.
-- 중복 제거보다 먼저 가독성과 변경 범위를 우선한다. 조기 추상화는 피한다.
-- 작은 파일을 많이 만드는 것이 목표가 아니다. 이름 붙일 수 있는 독립 책임이 있을 때만 분리한다.
+- 팀 회의에서 문제, 사용자, 차별점, MVP 완료 조건을 먼저 합의한다.
+- 설계자는 단계별 구현 계약과 수용 기준을 하나의 정본 설계에 기록한다.
+- 구현자는 책임이 분리된 작은 PR을 만들고, QA와 Reviewer는 PR head와 통합 head를 모두 검증한다.
+- 개별 PR 완료를 제품 완료로 보고하지 않는다. 하나의 통합 PR에서 핵심 사용자 흐름이 실행되고 검증되어야 한다.
+- 실패 시 같은 원인을 반복 시도하지 말고 원인, 시도, 증거, 필요한 판단을 Director에게 보고한다.
 
-## Backend Rules
+## Quality
 
-- Spring Boot 코드는 계층을 분리한다.
-  - `domain`: 엔티티, 값 객체, enum, 도메인 정책
-  - `application`: use case/service
-  - `infrastructure`: 외부 API, DB adapter, AI provider client
-  - `presentation`: controller, request/response DTO
-- Controller는 요청/응답 매핑과 검증만 담당한다.
-- Service는 여러 use case를 한 클래스에 과도하게 몰지 않는다.
-- LLM 응답은 JSON schema/DTO로 검증한 뒤 저장한다. 자연어 문자열을 그대로 파싱하지 않는다.
-- AI 호출 실패, JSON 파싱 실패, quota 초과, provider timeout은 구분 가능한 에러로 처리한다.
-
-## Frontend Rules
-
-- React 코드는 feature 단위로 나눈다.
-  - `features/onboarding`
-  - `features/quests`
-  - `features/dashboard`
-  - `features/resume`
-  - `features/interview`
-- 페이지 컴포넌트는 화면 조립만 담당한다.
-- API 호출, form state, 복잡한 view model은 hook/service로 분리한다.
-- 한 컴포넌트가 250줄을 넘으면 분리 후보로 본다.
-- UI는 MVP에서도 핵심 흐름이 바로 보이게 만든다. 기능 설명용 랜딩 페이지를 첫 화면으로 만들지 않는다.
-
-## QA / Review Rules
-
-- QA agent는 핵심 사용자 흐름을 기준으로 검증한다.
-- Reviewer agent는 다음 항목을 반드시 본다.
-  - 파일 크기와 책임 분리
-  - 줄 수만 줄이기 위한 의미 없는 micro-splitting 여부
-  - 실패 후 재설계 흐름이 제품 방향성과 맞는지
-  - LLM JSON 출력 검증 여부
-  - 사용자를 평가/감시하는 문구가 없는지
-  - MVP 범위를 벗어난 기능이 섞이지 않았는지
-- 유지보수 기준을 어긴 PR은 기능이 동작해도 승인하지 않는다.
+- 줄 수가 아니라 책임과 변경 이유를 기준으로 코드를 분리한다.
+- 사용자 입력, 외부 API, AI 출력은 구조화된 계약으로 검증한다.
+- 테스트 결과를 추정하지 않는다. 실행하지 못한 검증은 `미검증`으로 보고한다.
+- 정신건강, 법률, 금융 등 고위험 주제를 다루게 되면 제품 범위와 안전 문구를 별도로 검토한다.
