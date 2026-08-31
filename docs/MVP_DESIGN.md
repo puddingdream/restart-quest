@@ -195,11 +195,22 @@ Re:Start Quest는 취업 준비가 중단된 사용자가 죄책감이나 큰 �
 
 - 목적: backend와 frontend가 서로 독립적으로 빌드·테스트되는 빈 제품 골격을 만든다.
 - 사용자 흐름: 제품 화면 shell 진입과 API health까지만 확인한다.
-- backend: 앱, PostgreSQL migration, 익명 세션, health를 만든다.
-- frontend: 토큰·타이포·버튼·layout과 라우팅 shell을 만든다.
-- QA: backend test, frontend test/build, 360/768/1280 shell screenshot을 확인한다.
+- backend: 앱, PostgreSQL migration, 익명 세션, health를 만들고 backend 단위·DB 통합 테스트를 소유한다.
+- frontend: 토큰·타이포·버튼·layout과 라우팅 shell을 만들고 frontend 설치·단위/컴포넌트 테스트·lint·production build를 소유한다.
+- QA: 각 source head의 backend와 frontend 증거를 분리해 확인하고, 두 source가 포함된 통합 head에서 API health와 frontend shell 진입을 결합 검증한다.
 - 제외: quest 상태 전이와 실제 사용자 여정.
 - 다음 진입 조건: `backend-foundation`과 `frontend-shell`의 독립 검증 통과.
+
+#### Slice 1 실행 handoff와 신뢰 검증
+
+`backend-foundation`과 `frontend-shell`은 모두 `dependsOn: []`인 병렬 패키지다. 한 패키지가 다른 패키지의 파일이나 검증을 대신 소유하지 않는다.
+
+| 패키지 | 구현·변경 경계 | source head 신뢰 명령 | 필수 증거 |
+| --- | --- | --- | --- |
+| `backend-foundation` (`backend-infra`) | backend Gradle, migration, session/config, health, backend test만 변경한다. frontend 파일은 변경하지 않는다. | `cd backend && ./gradlew test` (Windows: `cd backend; .\\gradlew.bat test`) | 단위 및 실제 PostgreSQL DB 통합 테스트의 명령·실제 결과·검증 head SHA |
+| `frontend-shell` (`frontend-ui`) | frontend package manager, 공용 app/style/component, frontend test만 변경한다. backend 파일은 생성·수정하지 않고 backend test를 실행하지 않는다. | `cd frontend && npm ci`, `npm run test`, `npm run lint`, `npm run build` | 네 명령의 실제 결과·검증 head SHA와 `360x800`, `768x1024`, `1280x800` shell 확인 |
+
+QA는 두 패키지의 신뢰 증거를 각 source head 기준으로 독립 판정한다. 두 source head가 모두 포함된 정본 통합 head에서는 `GET /actuator/health`가 `UP`인지와 frontend shell 첫 진입이 성공하는지를 같은 release 후보에서 추가 smoke 검증한다. 이 결합 검증은 package 사이의 새 구현 의존성이 아니며 어느 한 worker의 독립 완료 증거를 대신하지 않는다.
 
 ### Slice 2: 재진입 루프
 
