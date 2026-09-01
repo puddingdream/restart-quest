@@ -5,6 +5,8 @@ WORKDIR /workspace
 COPY gradle gradle
 COPY gradlew build.gradle.kts settings.gradle.kts ./
 RUN sed -i 's/\r$//' gradlew \
+    && awk 'index($0, sprintf("%c", 13)) { exit 1 }' gradlew \
+    && test "$(head -n 1 gradlew)" = '#!/bin/sh' \
     && chmod +x gradlew \
     && ./gradlew --no-daemon dependencies
 
