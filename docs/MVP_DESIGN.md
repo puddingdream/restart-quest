@@ -259,3 +259,34 @@ frontend-shell -> frontend-state -> frontend-journey --+
 ## 8. 릴리스 이후 관찰
 
 첫 릴리스 이후에는 개인 식별 정보 없이 `설정 완료`, `행동 완료`, `재설계 선택`의 집계 필요성을 별도 검토한다. 초기 문구와 난이도 조정은 가능하지만, 완료·재설계·idempotency·세션 격리 상태 전이 계약은 변경하지 않는다.
+
+## 9. 릴리스 스택 선행 계약 통합
+
+계약 통합 세대 `cea3db8e00`은 아래 source head를 의존 순서대로 포함한다. 이 순서는 구현 편의를 위한 관행이 아니라 schema 생산자, API 생산자, UI binding 생산자와 소비자 사이의 실제 선행 관계다.
+
+| 순서 | 패키지 | 고정 source head | 정본 생산·소비 경계 |
+| --- | --- | --- | --- |
+| 1 | `backend-foundation` | `bb112096053e23ba01826818e1069f59ae155dbc` | `rq_session`, DB-backed health, 초기 Flyway schema를 생산한다. |
+| 2 | `quest-loop` | `4ed6ec31658e10485a58a160047cef163824093c` | 초기 schema를 소비하고 journey/quest API와 오류 payload를 생산한다. |
+| 3 | `frontend-shell` | `6d1b422ddedebed465f76460f3a2cb1dc587465a` | 공용 UI primitive, 디자인 토큰, 접근성·반응형 binding을 생산한다. |
+| 4 | `frontend-state` | `8b8f5c469b7be9b812d6b2588d9be020b2e58536` | session 및 journey/quest API를 검증하고 재시도·stale·만료 상태로 변환한다. |
+| 5 | `frontend-journey` | `3ea106c32b99173a80f7a54626fb5e45340dcec2` | frontend state와 공용 UI binding을 소비해 `/`, `/start`, `/quest` 흐름을 연결한다. |
+
+### 생산자-소비자 추적표
+
+| 계약 | 생산자 정본 | 소비자 확인 위치 | 동기화 결론 |
+| --- | --- | --- | --- |
+| `restart-quest-api-v1` session | `SessionController`, `application.yml` | `frontend/src/api/contracts.ts`, `frontend/src/api/client.ts`, `frontend/src/state/journeyStore.ts`, `release-stack` health/same-origin 설정 | `POST /api/v1/session`의 `200/201`, `expiresAt`, `rq_session` cookie와 DB-backed health가 일치한다. |
+| `restart-quest-schema-v1` | `V1__initial_schema.sql` | backend session/quest repository, `release-stack` PostgreSQL startup | 네 테이블, FK, 단일 active quest, session-scoped command idempotency 제약이 repository 쿼리와 일치한다. |
+| `quest-api-v1` | `QuestController`, `QuestModels`, `QuestApiExceptionHandler` | `frontend/src/api/contracts.ts`, `frontend/src/api/client.ts`, `frontend/src/state/journeyStore.ts` | endpoint, enum, snapshot/transition/error shape, `commandId`, `expectedVersion` 및 stale snapshot 처리가 일치한다. |
+| `restart-quest-frontend-ui-v1` | `frontend/src/components/`, `frontend/src/styles/`, `frontend/package.json` | `frontend/src/App.tsx`, `frontend/src/features/journey/` | 공용 shell/button/feedback와 focus, 44px control, reduced-motion binding을 여정 화면이 재사용한다. |
+
+### `release-stack` 인수 경계
+
+- 현재 통합 head의 backend, frontend, PostgreSQL을 그대로 조립하며 API, schema, 공용 UI binding을 새로 정의하지 않는다.
+- frontend와 API를 같은 origin으로 제공하고 `/api/v1/**`와 `/actuator/health`의 전달 경계를 명시한다. 상태 변경 요청의 JSON content type과 허용된 `Origin` 검증은 외부에 우회 경로를 노출하지 않는 구성으로 보존한다.
+- PostgreSQL migration 완료 뒤 DB indicator를 포함한 `/actuator/health`가 성공해야 frontend 의존 서비스를 준비 상태로 본다.
+- DB 접속 값과 secure-cookie 여부는 환경 주입으로만 받으며 실제 secret이나 운영 기본값을 image, compose, 문서에 저장하지 않는다.
+- release stack smoke는 backend health와 frontend shell 진입을 같은 실행에서 확인한다. 신규·완료·재설계·복원과 세션 격리의 전체 검증은 이어지는 `release-e2e`가 이 통합 head를 기준으로 수행한다.
+
+이 통합은 기존 API, schema, event, 공용 UI binding을 변경하지 않는다. 위 네 upstream 계약을 하나의 release-stack 입력으로 고정하며 생산자와 소비자 사이에 남은 shape 충돌은 없다.
