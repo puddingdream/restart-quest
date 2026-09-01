@@ -1,102 +1,119 @@
-import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import { Navigate, Route, Routes } from 'react-router-dom'
+import { QuestApiClient } from './api/client'
 import { AppShell } from './components/AppShell'
 import { Button } from './components/Button'
 import { Feedback } from './components/Feedback'
+import { LandingPage } from './features/journey/LandingPage'
+import { QuestPage } from './features/journey/QuestPage'
+import { StartPage } from './features/journey/StartPage'
+import './features/journey/journey.css'
+import { JourneyStore } from './state/journeyStore'
 
-function LandingPage() {
-  const navigate = useNavigate()
+let browserStore: JourneyStore | undefined
 
-  return (
-    <AppShell>
-      <section className="hero" aria-labelledby="landing-title">
-        <p className="eyebrow">다시 시작하는 가장 작은 방법</p>
-        <h1 id="landing-title">멈춘 준비를, 오늘 할 수 있는 한 가지로</h1>
-        <p className="hero__description">
-          긴 계획도 가입도 필요 없어요. 지금의 여력에 맞는 작은 행동을 하나 고르고,
-          어렵다면 더 쉬운 행동으로 바꿔 보세요.
-        </p>
-        <div className="action-row">
-          <Button onClick={() => navigate('/start')}>오늘의 작은 행동 만들기</Button>
-        </div>
-      </section>
-
-      <section className="steps" aria-labelledby="steps-title">
-        <div className="section-heading">
-          <p className="eyebrow">이렇게 이어져요</p>
-          <h2 id="steps-title">부담 대신 다음 행동에 집중해요</h2>
-        </div>
-        <ol className="step-list">
-          <li>
-            <span className="step-list__number" aria-hidden="true">01</span>
-            <strong>지금의 여력을 선택해요</strong>
-            <p>목표와 에너지, 가능한 시간만 짧게 확인해요.</p>
-          </li>
-          <li>
-            <span className="step-list__number" aria-hidden="true">02</span>
-            <strong>작은 행동 하나를 확인해요</strong>
-            <p>끝냈는지 바로 알 수 있는 구체적인 행동만 보여 드려요.</p>
-          </li>
-          <li>
-            <span className="step-list__number" aria-hidden="true">03</span>
-            <strong>어렵다면 더 작게 바꿔요</strong>
-            <p>멈춘 이유를 탓하지 않고 다음 시도를 가볍게 만들어요.</p>
-          </li>
-        </ol>
-      </section>
-    </AppShell>
-  )
+function getBrowserStore() {
+  browserStore ??= new JourneyStore(new QuestApiClient())
+  return browserStore
 }
 
-function RoutePreview({
-  eyebrow,
+function RouteStatus({
+  message,
+  onRetry,
   title,
-  description,
 }: {
-  eyebrow: string
+  message: string
+  onRetry?: () => void
   title: string
-  description: string
 }) {
   return (
     <AppShell>
-      <section className="route-preview" aria-labelledby="preview-title">
-        <p className="eyebrow">{eyebrow}</p>
-        <h1 id="preview-title">{title}</h1>
-        <p>{description}</p>
-        <Feedback tone="info" title="화면 준비 중">
-          실행 shell은 준비되었어요. 입력과 행동 데이터는 다음 기능 패키지에서 안전하게
-          연결합니다.
+      <section className="route-status" aria-labelledby="route-status-title">
+        <Feedback tone={onRetry ? 'error' : 'info'} title={title}>
+          <p id="route-status-title">{message}</p>
+          {onRetry && <Button onClick={onRetry}>다시 시도</Button>}
         </Feedback>
-        <Link className="text-link" to="/">처음 화면으로 돌아가기</Link>
       </section>
     </AppShell>
   )
 }
 
-export function AppRoutes() {
+function JourneyRoutes({
+  sessionNotice,
+  store,
+}: {
+  sessionNotice: string | null
+  store: JourneyStore
+}) {
+  const state = useSyncExternalStore(store.subscribe, store.getState, store.getState)
+  const hasJourney = state.snapshot !== null
+  const bootstrapStatus = state.bootstrap.status
+
+  if (bootstrapStatus === 'idle' || bootstrapStatus === 'loading') {
+    return <RouteStatus title="여정 확인 중" message="저장된 작은 행동을 불러오고 있어요." />
+  }
+
+  if (bootstrapStatus === 'network-error' || bootstrapStatus === 'error') {
+    return (
+      <RouteStatus
+        title="여정을 불러오지 못했어요"
+        message={state.bootstrap.message}
+        onRetry={() => void store.bootstrap()}
+      />
+    )
+  }
+
+  const startNotice = sessionNotice
+    ?? (bootstrapStatus === 'session-expired' ? state.bootstrap.message : null)
+  const mustStartAgain = startNotice !== null
+
   return (
     <Routes>
-      <Route path="/" element={<LandingPage />} />
+      <Route
+        path="/"
+        element={
+          hasJourney ? <Navigate replace to="/quest" />
+            : mustStartAgain ? <Navigate replace to="/start" />
+              : <LandingPage />
+        }
+      />
       <Route
         path="/start"
         element={
-          <RoutePreview
-            eyebrow="작은 행동 설정"
-            title="오늘 가능한 만큼만 알려 주세요"
-            description="목표, 에너지, 가능한 시간을 선택하는 짧은 설정 화면이 이곳에 연결됩니다."
-          />
+          hasJourney ? <Navigate replace to="/quest" />
+            : <StartPage notice={startNotice} store={store} />
         }
       />
       <Route
         path="/quest"
         element={
-          <RoutePreview
-            eyebrow="오늘의 작은 행동"
-            title="한 번에 한 가지에 집중해요"
-            description="현재 행동과 완료 또는 재설계 흐름이 이곳에 연결됩니다."
-          />
+          hasJourney
+            ? <QuestPage store={store} />
+            : <Navigate replace to="/start" />
         }
       />
-      <Route path="*" element={<Navigate replace to="/" />} />
+      <Route path="*" element={<Navigate replace to={hasJourney ? '/quest' : '/'} />} />
     </Routes>
   )
+}
+
+export function AppRoutes({ store: providedStore }: { store?: JourneyStore } = {}) {
+  const [store] = useState(() => providedStore ?? getBrowserStore())
+  const state = useSyncExternalStore(store.subscribe, store.getState, store.getState)
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (state.bootstrap.status === 'idle') {
+      void store.bootstrap()
+    }
+  }, [state.bootstrap.status, store])
+
+  useEffect(() => {
+    if (state.mutation.status === 'session-expired') {
+      setSessionNotice(state.mutation.message)
+      void store.bootstrap()
+    }
+  }, [state.mutation, store])
+
+  return <JourneyRoutes sessionNotice={sessionNotice} store={store} />
 }

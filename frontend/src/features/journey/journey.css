@@ -1,0 +1,348 @@
+.route-status,
+.setup-page,
+.quest-page {
+  padding-block: var(--space-7) var(--space-8);
+}
+
+.route-status {
+  display: grid;
+  min-height: 65vh;
+  align-content: center;
+}
+
+.route-status .feedback {
+  margin-top: 0;
+}
+
+.route-status .button,
+.feedback .button {
+  width: fit-content;
+  margin-top: var(--space-3);
+}
+
+.journey-heading {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.journey-heading .eyebrow {
+  margin: 0;
+}
+
+.journey-heading h1 {
+  max-width: 18ch;
+  font-size: var(--text-xl);
+}
+
+.journey-heading > p:not(.eyebrow),
+.sheet-description {
+  max-width: 38rem;
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.setup-form {
+  display: grid;
+  margin-top: var(--space-7);
+  gap: var(--space-7);
+}
+
+.choice-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.choice-group legend {
+  margin-bottom: var(--space-3);
+  font-size: var(--text-lg);
+  font-weight: 800;
+}
+
+.choice-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.choice-card {
+  display: grid;
+  min-width: 0;
+  min-block-size: var(--control-min-size);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  cursor: pointer;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.choice-card:has(input:checked) {
+  border-color: var(--color-brand);
+  background: var(--color-brand-soft);
+  box-shadow: inset 0 0 0 1px var(--color-brand);
+}
+
+.choice-card:has(input:focus-visible) {
+  outline: 0.1875rem solid var(--color-focus);
+  outline-offset: 0.1875rem;
+}
+
+.choice-card input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0.15rem 0 0;
+  accent-color: var(--color-brand);
+}
+
+.choice-card span {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.choice-card small {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+.choice-list--compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.choice-card--compact {
+  align-items: center;
+}
+
+.quest-card {
+  display: grid;
+  min-width: 0;
+  margin-top: var(--space-6);
+  padding: var(--space-5);
+  border: 1px solid rgb(31 45 40 / 10%);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  gap: var(--space-4);
+  overflow-wrap: anywhere;
+}
+
+.quest-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--color-brand);
+  font-size: var(--text-sm);
+  font-weight: 800;
+}
+
+.quest-card h2 {
+  font-size: var(--text-xl);
+}
+
+.quest-card > p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--text-lg);
+}
+
+.quest-actions {
+  display: grid;
+  margin-top: var(--space-2);
+  gap: var(--space-3);
+}
+
+.progress-section,
+.history-section {
+  margin-top: var(--space-7);
+}
+
+.progress-grid {
+  display: grid;
+  margin: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.progress-grid > div {
+  display: grid;
+  min-width: 0;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-brand-soft);
+  gap: var(--space-1);
+}
+
+.progress-grid dt {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+.progress-grid dd {
+  margin: 0;
+  color: var(--color-brand-strong);
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 800;
+}
+
+.attempt-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--color-border);
+  list-style: none;
+}
+
+.attempt-list li {
+  display: flex;
+  min-width: 0;
+  padding-block: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.attempt-list li > div {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+  overflow-wrap: anywhere;
+}
+
+.attempt-list span,
+.attempt-list time {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+.attempt-list time {
+  flex: 0 0 auto;
+}
+
+.sheet-backdrop {
+  position: fixed;
+  z-index: 20;
+  display: grid;
+  inset: 0;
+  padding-top: var(--space-5);
+  background: rgb(18 29 25 / 58%);
+  align-items: end;
+}
+
+.reframe-sheet {
+  max-height: calc(100vh - var(--space-5));
+  padding: var(--space-5) max(var(--space-4), calc((100vw - var(--content-width)) / 2));
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--color-canvas);
+  box-shadow: 0 -1rem 3rem rgb(18 29 25 / 20%);
+  overflow-y: auto;
+}
+
+.reframe-sheet > form,
+.sheet-heading {
+  width: min(100%, var(--content-width));
+  margin-inline: auto;
+}
+
+.sheet-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.sheet-heading .eyebrow {
+  margin-bottom: var(--space-2);
+}
+
+.sheet-close {
+  min-block-size: var(--control-min-size);
+  padding-inline: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.sheet-description {
+  width: min(100%, var(--content-width));
+  margin: var(--space-3) auto var(--space-5);
+}
+
+.reframe-sheet form {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  margin: -1px;
+  clip: rect(0 0 0 0);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+@media (min-width: 48rem) {
+  .route-status,
+  .setup-page,
+  .quest-page {
+    padding-block: var(--space-8);
+  }
+
+  .choice-list:not(.choice-list--compact) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .reframe-sheet .choice-list {
+    grid-template-columns: 1fr;
+  }
+
+  .quest-card {
+    padding: var(--space-6);
+  }
+
+  .quest-actions {
+    width: fit-content;
+    grid-auto-flow: column;
+  }
+
+  .sheet-backdrop {
+    align-items: center;
+    padding-block: var(--space-6);
+  }
+
+  .reframe-sheet {
+    width: min(calc(100% - 3rem), 42rem);
+    max-height: calc(100vh - 3rem);
+    margin-inline: auto;
+    padding: var(--space-6);
+    border-radius: var(--radius-lg);
+  }
+}
+
+@media (max-width: 30rem) {
+  .feedback .button,
+  .route-status .button {
+    width: 100%;
+  }
+
+  .choice-list--compact {
+    grid-template-columns: 1fr;
+  }
+
+  .attempt-list li {
+    align-items: start;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+}
