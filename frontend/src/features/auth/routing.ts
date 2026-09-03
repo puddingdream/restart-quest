@@ -31,12 +31,12 @@ export function navigate(to: string, options: { replace?: boolean } = {}): void 
 
 export function safeReturnTo(value: string | null): string {
   if (!value || !value.startsWith('/') || value.startsWith('//')) {
-    return '/account'
+    return '/today'
   }
 
   const url = new URL(value, window.location.origin)
   if (url.origin !== window.location.origin || ['/login', '/register'].includes(url.pathname)) {
-    return '/account'
+    return '/today'
   }
 
   return `${url.pathname}${url.search}${url.hash}`

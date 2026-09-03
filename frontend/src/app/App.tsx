@@ -1,10 +1,10 @@
 import { AppShell } from './AppShell'
-import { AuthApp } from '../features/auth/AuthApp'
+import { QuestApp } from '../features/today/QuestApp'
 
 export function App() {
   return (
     <AppShell>
-      <AuthApp />
+      <QuestApp />
     </AppShell>
   )
 }
