@@ -173,7 +173,9 @@ UI에는 “Re:Start Quest는 구직 행동 정리 도구이며 전문 상담이
   },
   "activeQuest": {
     "id": "uuid",
-    "title": "경력 한 줄에서 동사 하나 바꾸기",
+    "templateKey": "resume.pick",
+    "catalogVersion": "v1",
+    "title": "고칠 경력 한 줄 표시하기",
     "estimatedMinutes": 5,
     "difficulty": 1,
     "reason": "에너지가 낮아 5분 안에 끝낼 수 있는 행동을 골랐어요.",
@@ -226,6 +228,30 @@ UI에는 “Re:Start Quest는 구직 행동 정리 도구이며 전문 상담이
 - 시간: 서버 도메인 기준일은 `Asia/Seoul`, 저장 timestamp는 UTC이다. 테스트는 Clock 주입으로 자정 경계를 고정한다.
 - 로그: `traceId`, 결과 코드, 지연 시간만 구조화해 기록한다. 이메일, 메모, 비밀번호, 쿠키, CSRF 토큰은 로그에서 제외한다.
 - 테스트: 도메인 상태 전이와 카탈로그 fallback은 단위 테스트, 소유권·트랜잭션·세션·CSRF는 통합 테스트, 가입→체크인→막힘→축소 행동→완료→기록은 브라우저 smoke 테스트로 검증한다.
+
+### Same-origin 릴리스 runtime 계약
+
+`release-runtime`은 기존 상대 API 경로와 세션·CSRF 계약을 바꾸지 않고 다음 경계로 컨테이너 실행을 제공한다.
+
+| 경계 | 정본 계약 |
+| --- | --- |
+| 외부 진입점 | 브라우저에는 웹 게이트웨이 한 곳만 노출한다. Runbook의 로컬 기본 주소는 `http://localhost:8080`으로 통일하고 backend와 PostgreSQL 포트는 호스트에 공개하지 않는다. |
+| API와 health | `/api/*`와 `/actuator/health`를 경로 변경 없이 backend로 전달한다. API 오류는 SPA fallback이나 웹 서버 오류 문서로 바꾸지 않고 상태 코드, JSON 본문, `Retry-After`를 보존한다. |
+| SPA 라우팅 | `/`, `/login`, `/register`, `/today`, `/history`, `/account` 직접 진입과 새로고침은 같은 `index.html`로 복구한다. `/api/*`, `/actuator/*`, 존재하지 않는 정적 asset은 SPA로 fallback하지 않는다. |
+| 세션과 CSRF | `Set-Cookie`를 그대로 전달하고 클라이언트는 상대 `/api/v1` 경로, `credentials: same-origin`, CSRF 응답의 `headerName`을 유지한다. 별도 API base URL이나 CORS 허용 목록을 추가하지 않는다. |
+| 데이터베이스 | backend만 내부 PostgreSQL에 연결한다. `DATABASE_URL`, `DATABASE_USERNAME`, `DATABASE_PASSWORD`로 주입하며 비밀번호 기본값, 실제 자격 증명, `.env`는 커밋하지 않는다. Flyway V1→V2를 시작 시 검증·적용하고 JPA는 `ddl-auto=validate`를 유지한다. |
+| 기동 순서 | PostgreSQL health 통과 뒤 backend, backend `/actuator/health` 통과 뒤 웹 게이트웨이를 준비 상태로 간주한다. 의존 컨테이너가 아직 준비되지 않은 상태를 애플리케이션 결함으로 숨기지 않는다. |
+
+운영 TLS 환경은 `SESSION_COOKIE_SECURE=true` 기본값을 유지한다. 로컬 HTTP smoke에서만 Runbook이 `SESSION_COOKIE_SECURE=false`를 명시하며, 이 설정을 운영 예시나 이미지 기본값으로 승격하지 않는다.
+
+Runbook은 준비 조건, 필요한 변수 이름과 `set`/`empty` 확인법, 이미지 build, 기동, public health와 랜딩 확인, 로그 확인, 종료, 데이터 백업, 이전 이미지 rollback을 같은 revision 기준으로 제공한다. 배포 전 DB 백업과 사용 중인 이미지 식별자를 기록하고, rollback은 PostgreSQL volume을 보존한 채 이전 이미지로 되돌리는 것을 기본으로 한다. 이전 코드가 이미 적용된 Flyway schema와 호환되지 않으면 기존 volume을 임의로 내리거나 삭제하지 않고 백업에서 별도 복구한 DB로 전환하는 절차를 사용한다.
+
+선행 계약의 release-runtime 소비 관계는 다음과 같다.
+
+- `backend-platform`: Java 21 실행 이미지, 환경 변수 기반 datasource, 공개 `/actuator/health`, 민감 로그 억제 설정을 보존한다.
+- `frontend-shell`: Vite production build 산출물을 게이트웨이의 정적 자산으로 제공하고 SPA 접근성 셸을 그대로 사용한다.
+- `backend-identity`와 `frontend-auth`: 세션 쿠키, 동적 CSRF header, `Retry-After`, 상대 API 경로가 프록시를 지나도 변하지 않아야 한다.
+- `backend-quest-loop`와 `frontend-quest-flow`: Flyway V2 소유권·유일성 제약과 `/api/v1/today`, check-in, complete, block, history 요청·응답을 경로 변경 없이 유지한다.
 
 ## 8. 구현 Slice와 진입 조건
 
