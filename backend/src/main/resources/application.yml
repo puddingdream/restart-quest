@@ -1,0 +1,52 @@
+spring:
+  application:
+    name: restart-quest
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/restart_quest}
+    username: ${DATABASE_USERNAME:restart_quest}
+    password: ${DATABASE_PASSWORD}
+  flyway:
+    clean-disabled: true
+    enabled: true
+    validate-on-migrate: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  jackson:
+    time-zone: UTC
+  mvc:
+    log-request-details: false
+
+server:
+  error:
+    include-binding-errors: never
+    include-exception: false
+    include-message: never
+    include-stacktrace: never
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        same-site: lax
+        secure: ${SESSION_COOKIE_SECURE:true}
+      timeout: 30m
+      tracking-modes: cookie
+  tomcat:
+    accesslog:
+      enabled: false
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+logging:
+  pattern:
+    level: "%5p [traceId:%X{traceId:-}]"
