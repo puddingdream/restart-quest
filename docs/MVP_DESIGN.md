@@ -214,6 +214,23 @@ Re:Start Quest는 취업 준비가 중단된 사용자가 죄책감이나 큰 �
 - 제외: 실제 API client/store 연결, 완성된 사용자 여정, release container.
 - 다음 진입 조건: `mvp-backend-core`와 `mvp-frontend-shell`의 독립 검증 통과.
 
+#### Slice 1 실행 handoff와 신뢰 검증
+
+`mvp-backend-core`와 `mvp-frontend-shell`은 모두 `dependsOn: []`인 병렬 패키지다.
+한 패키지가 다른 패키지의 파일이나 검증을 대신 소유하지 않는다. 이전 foundation 분리안의
+backend 검증 책임은 최신 결의에 따라 일반 `backend` 역할의 `mvp-backend-core`로 이동하고,
+`backend-infra`는 Slice 3의 release 계층만 소유한다.
+
+| 패키지 | 구현·변경 경계 | source head 신뢰 명령 | 필수 증거 |
+| --- | --- | --- | --- |
+| `mvp-backend-core` (`backend`) | backend Gradle, migration, session/config, 도메인 API, health와 backend test만 변경한다. frontend와 release 파일은 변경하지 않는다. | `cd backend && ./gradlew test --no-daemon` (Windows: `cd backend; .\\gradlew.bat test --no-daemon`) | 단위 및 실제 PostgreSQL DB 통합 테스트, health test의 명령·실제 결과·검증 head SHA |
+| `mvp-frontend-shell` (`frontend-ui`) | frontend package manager, 공용 app/style/component, route shell과 frontend test만 변경한다. backend 파일은 생성·수정하지 않고 backend test를 실행하지 않는다. | `cd frontend && npm ci`, `npm run test`, `npm run lint`, `npm run build` | 네 명령의 실제 결과·검증 head SHA와 `360x800`, `768x1024`, `1280x800` shell 확인 |
+
+QA는 두 패키지의 신뢰 증거를 각 immutable source head 기준으로 분리 판정한다. 검증된 두
+source head가 포함된 새 정본 통합 head에서는 `GET /actuator/health`가 `UP`인지와 frontend
+shell 첫 진입이 성공하는지를 같은 release 후보에서 추가 smoke 검증한다. 이 결합 검증은 package
+사이의 새 구현 의존성이 아니며 어느 한 worker의 독립 완료 증거를 대신하지 않는다.
+
 ### Slice 2: 브라우저 재진입 루프
 
 - 목적: 완료와 어려움 두 경로를 request lifecycle과 함께 브라우저에서 동작하게 한다.
