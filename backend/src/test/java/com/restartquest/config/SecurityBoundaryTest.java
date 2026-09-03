@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.restartquest.auth.AccountRepository;
 import com.restartquest.auth.RegistrationEmailLock;
+import com.restartquest.quest.QuestService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -41,6 +42,9 @@ class SecurityBoundaryTest {
 
     @MockitoBean
     private RegistrationEmailLock registrationEmailLock;
+
+    @MockitoBean
+    private QuestService questService;
 
     @Test
     void exposesHealthWithoutAuthentication() throws Exception {
