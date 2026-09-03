@@ -57,7 +57,7 @@ class PlatformPostgresqlIntegrationTest {
 
         assertThat(databaseProduct).isEqualTo("PostgreSQL");
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("1");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("2");
         assertThat(healthEndpoint.health().getStatus()).isEqualTo(Status.UP);
         registrationEmailLock.acquire("platform-lock-probe@example.com");
 
