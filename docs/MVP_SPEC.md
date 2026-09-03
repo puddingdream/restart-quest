@@ -306,3 +306,33 @@ frontend-shell -----> frontend-auth -> frontend-quest-flow ----┘
 - 단위·통합·E2E 테스트가 같은 통합 head에서 통과하며 실행하지 못한 항목은 통과로 기록하지 않는다.
 - 저장소에 secret, 실제 운영 자격 증명, 생성된 build output이나 dependency cache가 포함되지 않는다.
 - Runbook에 준비, 실행, health check, 데이터 백업, rollback 절차가 함께 기록된다.
+
+## 10. 계약 동기화와 통합 순서
+
+계약 동기화 세대 `d9253b9da9`는 아래 immutable source head를 Design DAG의 실제 의존 순서로 통합한다. 표의 순서는 정본 통합 순서이며, 각 후행 패키지는 표에 적힌 선행 계약만 소비한다.
+
+| 순서 | Work item | PR | Source head | 계약 역할 |
+| --- | --- | --- | --- | --- |
+| 1 | `TASK-001-DAG-4c04d60149-01-backend-platform` | `#114` | `e011f57b77b99849e7a7f2bb2de2e58f8506e0f2` | backend 실행 기반, 공통 오류·보안·health 생산 |
+| 2 | `TASK-001-DAG-4c04d60149-02-frontend-shell` | `#111` | `88d3779edd7131d3ae867bcf83e4cbb2492b391a` | 앱 셸, 공유 컴포넌트와 디자인 토큰 생산 |
+| 3 | `TASK-001-DAG-4c04d60149-03-backend-identity` | `#115` | `faab2af9c0c0c486b79187fcf9e1a1557be32688` | auth API와 accounts V1 schema 생산 |
+| 4 | `TASK-001-DAG-4c04d60149-04-backend-quest-loop` | `#116` | `ac77f885af6d8b111df49cd482e53a3476a0fa08` | today·quest·history API와 quest V2 schema 생산 |
+| 5 | `TASK-001-DAG-4c04d60149-05-frontend-auth` | `#112` | `4fa2fb08d117e62c21cdedf7732bb37e0455f5d7` | UI foundation과 auth API를 소비하고 공용 인증 상태 생산 |
+| 6 | `TASK-001-DAG-4c04d60149-06-frontend-quest-flow` | `#113` | `d67ecd32b3c5b39fc51f9d18b29e614e9366f869` | 공용 인증 상태와 quest API를 소비해 핵심 화면 흐름 완성 |
+| 7 | `TASK-001-DAG-4c04d60149-07-release-runtime` | `#118` | `36140384ff08e0f5218dd9369fdff12c08c70844` | backend·frontend·schema 계약을 경로 변경 없이 same-origin runtime으로 연결 |
+| 8 | `TASK-001-DAG-4c04d60149-08-release-e2e` | `#119` | `9aea91b7b236f5e2be32baf5525cb333ef51e7c6` | 통합 runtime에서 사용자 여정, 소유권, 경합과 viewport 계약 검증 |
+
+### 선언된 변경의 생산자·소비자 정산
+
+| Change ID | 종류 | 생산자 → 소비자 | 정본 위치와 동기화 판정 |
+| --- | --- | --- | --- |
+| `TASK-001-DAG-4c04d60149-02-frontend-shell-ui-binding-1` | UI binding | `frontend-shell` → `frontend-auth`, `frontend-quest-flow` | `AppShell`, `Button`, `FormField`, `LoadingIndicator`, `StatusNotice`, `tokens.css`, `global.css`를 두 화면 패키지가 재사용하므로 호환됨 |
+| `TASK-001-DAG-4c04d60149-03-backend-identity-api-1` | API | `backend-identity` → `frontend-auth`, `frontend-quest-flow`, `backend-quest-loop` | 5절 auth v1, 세션 교체, 동적 CSRF header와 `RATE_LIMITED` 계약을 공용 `ApiClient`와 인증 상태가 소비하므로 호환됨 |
+| `TASK-001-DAG-4c04d60149-03-backend-identity-schema-1` | Schema | `backend-identity` → `backend-quest-loop` | 4절 `Account` 불변조건에 따라 auth 서비스가 이메일을 정규화해 저장하고 Flyway V1이 이메일 유일성·password hash 저장을 보장하며, V2의 소유권 FK가 이를 이어받으므로 호환됨 |
+| `TASK-001-DAG-4c04d60149-04-backend-quest-loop-contract-1` | API | `backend-quest-loop` → `frontend-quest-flow`, `release-e2e` | 4·5절 상태 전이와 today·check-in·complete·block·history 경로, `templateKey`·`catalogVersion` 결정성 필드를 유지하므로 호환됨 |
+| `TASK-001-DAG-4c04d60149-04-backend-quest-loop-contract-2` | Schema | `backend-quest-loop` → `release-runtime`, `release-e2e` | Flyway V2의 계정 소유권, 활성 행동 1개, 행동당 결과 1개 제약을 runtime 기동과 소유권·경합 E2E가 검증하므로 호환됨 |
+| `TASK-001-DAG-4c04d60149-05-frontend-auth-binding-1` | UI binding | `frontend-auth` → `frontend-quest-flow` | 상대 API 경로, `credentials: same-origin`, CSRF token 갱신, 401 세션 만료와 `ProtectedRoute`를 퀘스트 화면이 공유하므로 호환됨 |
+
+`release-runtime`과 `release-e2e`는 새 API, schema, event 또는 공유 UI binding을 추가하지 않는다. 두 패키지는 7절의 same-origin 경계와 이 표의 선행 계약을 그대로 소비한다. JSON 응답의 하위 호환 가능한 추가 필드는 화면이 직접 표시하지 않아도 허용하지만, `templateKey`와 `catalogVersion`은 결정성 검증을 위한 서버 정본 필드로 유지한다.
+
+이 세대에서 event 계약은 선언되지 않았다. 위 여섯 change ID는 모두 정본의 제품·도메인·API·화면·runtime 흐름에 연결되며, 생산자와 소비자 사이에 남은 계약 충돌은 없다.
