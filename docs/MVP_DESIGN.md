@@ -1,5 +1,18 @@
 # Re:Start Quest MVP 설계
 
+## 0. 설계 기준선과 출처
+
+이 문서는 TASK-002의 명시적 제품 요청과 `origin/main`의 기준선 commit
+`1ee04def44b7c0c63d6f758b4fa8f9bf7297654b`만을 출발점으로 삼는다. 제품 선택의
+근거는 `docs/PROJECT_BRIEF.md`, 구현자가 따라야 할 제품·도메인·API·화면 계약은
+이 문서가 정본이다.
+
+PR #99, branch `agentflow/task-002-dag-ea40380f33-06-release-stack-backend-infra`,
+head `6404e5bda5fb7f3e205d4c9769ef7262398267dc`와 그 밖의 과거 worker ref는 비교
+자료일 뿐이다. 새 구현 패키지, 정본 통합 head, 제품 PASS, publish 또는 merge의
+출처로 가져오지 않는다. 아래 모든 패키지는 `sourceImport` 없이 main 계보에서 새로
+구현하며, 승인되지 않은 worker SHA를 ancestry에 포함한 통합 결과는 폐기한다.
+
 ## 1. 제품 결정
 
 ### 사용자와 문제
@@ -189,38 +202,44 @@ Re:Start Quest는 취업 준비가 중단된 사용자가 죄책감이나 큰 �
 
 ## 6. 구현 기준과 slice backlog
 
-기술 기준은 Java 21 + Spring Boot 3 + Gradle, PostgreSQL + Flyway, React + TypeScript + Vite다. 테스트는 backend 단위/DB 통합, frontend component, Playwright E2E로 분리한다. 실제 버전 고정은 foundation 패키지가 서로 호환되는 안정 버전을 선택해 lockfile과 함께 남긴다.
+기술 기준은 Java 21 + Spring Boot 3 + Gradle, PostgreSQL + Flyway, React + TypeScript + Vite다. 테스트는 backend 단위/DB 통합, frontend component, Playwright E2E로 분리한다. 실제 버전은 `mvp-backend-core`와 `mvp-frontend-shell`이 각 생태계에서 서로 호환되는 안정 버전을 선택해 wrapper 또는 lockfile과 함께 고정한다.
 
-### Slice 1: 실행 기반
+### Slice 1: 계약을 실행하는 독립 제품 절반
 
-- 목적: backend와 frontend가 서로 독립적으로 빌드·테스트되는 빈 제품 골격을 만든다.
-- 사용자 흐름: 제품 화면 shell 진입과 API health까지만 확인한다.
-- backend: 앱, PostgreSQL migration, 익명 세션, health를 만들고 backend 단위·DB 통합 테스트를 소유한다.
-- frontend: 토큰·타이포·버튼·layout과 라우팅 shell을 만들고 frontend 설치·단위/컴포넌트 테스트·lint·production build를 소유한다.
-- QA: 각 source head의 backend와 frontend 증거를 분리해 확인하고, 두 source가 포함된 통합 head에서 API health와 frontend shell 진입을 결합 검증한다.
-- 제외: quest 상태 전이와 실제 사용자 여정.
-- 다음 진입 조건: `backend-foundation`과 `frontend-shell`의 독립 검증 통과.
+- 목적: 정본 API 계약을 구현하는 backend와 접근 가능한 frontend shell을 서로 독립적으로 만든다.
+- 사용자 흐름: API에서는 세션 생성부터 완료·재설계까지 검증하고, 브라우저에서는 세 라우트와 빈·로딩·오류 boundary에 진입한다.
+- backend: 앱, migration, 익명 세션, 여정·행동 전이, idempotency, stale-version, health를 하나의 소유 패키지에서 구현한다.
+- frontend: 토큰·타이포·버튼·layout과 라우팅 shell만 만들고 backend 파일을 수정하지 않는다.
+- QA: backend의 양성·음성·실패·DB 통합 테스트와 frontend shell의 component/lint/build 및 세 viewport를 source head별로 분리해 확인한다.
+- 제외: 실제 API client/store 연결, 완성된 사용자 여정, release container.
+- 다음 진입 조건: `mvp-backend-core`와 `mvp-frontend-shell`의 독립 검증 통과.
 
 #### Slice 1 실행 handoff와 신뢰 검증
 
-`backend-foundation`과 `frontend-shell`은 모두 `dependsOn: []`인 병렬 패키지다. 한 패키지가 다른 패키지의 파일이나 검증을 대신 소유하지 않는다.
+`mvp-backend-core`와 `mvp-frontend-shell`은 모두 `dependsOn: []`인 병렬 패키지다.
+한 패키지가 다른 패키지의 파일이나 검증을 대신 소유하지 않는다. 이전 foundation 분리안의
+backend 검증 책임은 최신 결의에 따라 일반 `backend` 역할의 `mvp-backend-core`로 이동하고,
+`backend-infra`는 Slice 3의 release 계층만 소유한다.
 
 | 패키지 | 구현·변경 경계 | source head 신뢰 명령 | 필수 증거 |
 | --- | --- | --- | --- |
-| `backend-foundation` (`backend-infra`) | backend Gradle, migration, session/config, health, backend test만 변경한다. frontend 파일은 변경하지 않는다. | `cd backend && ./gradlew test` (Windows: `cd backend; .\\gradlew.bat test`) | 단위 및 실제 PostgreSQL DB 통합 테스트의 명령·실제 결과·검증 head SHA |
-| `frontend-shell` (`frontend-ui`) | frontend package manager, 공용 app/style/component, frontend test만 변경한다. backend 파일은 생성·수정하지 않고 backend test를 실행하지 않는다. | `cd frontend && npm ci`, `npm run test`, `npm run lint`, `npm run build` | 네 명령의 실제 결과·검증 head SHA와 `360x800`, `768x1024`, `1280x800` shell 확인 |
+| `mvp-backend-core` (`backend`) | backend Gradle, migration, session/config, 도메인 API, health와 backend test만 변경한다. frontend와 release 파일은 변경하지 않는다. | `cd backend && ./gradlew test --no-daemon` (Windows: `cd backend; .\\gradlew.bat test --no-daemon`) | 단위 및 실제 PostgreSQL DB 통합 테스트, health test의 명령·실제 결과·검증 head SHA |
+| `mvp-frontend-shell` (`frontend-ui`) | frontend package manager, 공용 app/style/component, route shell과 frontend test만 변경한다. backend 파일은 생성·수정하지 않고 backend test를 실행하지 않는다. | `cd frontend && npm ci`, `npm run test`, `npm run lint`, `npm run build` | 네 명령의 실제 결과·검증 head SHA와 `360x800`, `768x1024`, `1280x800` shell 확인 |
 
-QA는 두 패키지의 신뢰 증거를 각 source head 기준으로 독립 판정한다. 두 source head가 모두 포함된 정본 통합 head에서는 `GET /actuator/health`가 `UP`인지와 frontend shell 첫 진입이 성공하는지를 같은 release 후보에서 추가 smoke 검증한다. 이 결합 검증은 package 사이의 새 구현 의존성이 아니며 어느 한 worker의 독립 완료 증거를 대신하지 않는다.
+QA는 두 패키지의 신뢰 증거를 각 immutable source head 기준으로 분리 판정한다. 검증된 두
+source head가 포함된 새 정본 통합 head에서는 `GET /actuator/health`가 `UP`인지와 frontend
+shell 첫 진입이 성공하는지를 같은 release 후보에서 추가 smoke 검증한다. 이 결합 검증은 package
+사이의 새 구현 의존성이 아니며 어느 한 worker의 독립 완료 증거를 대신하지 않는다.
 
-### Slice 2: 재진입 루프
+### Slice 2: 브라우저 재진입 루프
 
-- 목적: 완료와 어려움 두 경로가 같은 계약으로 동작하게 한다.
+- 목적: 완료와 어려움 두 경로를 request lifecycle과 함께 브라우저에서 동작하게 한다.
 - 사용자 흐름: 설정 -> 행동 -> 완료 또는 재설계 -> 다음 행동이다.
-- backend: 카탈로그, 상태 전이, idempotency, 세션 격리를 구현한다.
-- frontend: API client/state와 세 화면을 연결한다.
-- QA: 양성, 음성, stale, 중복 명령, reload 사례를 검증한다.
+- backend: Slice 1에서 검증된 계약을 제공하며 frontend/release 파일을 수정하지 않는다.
+- frontend: typed API client와 상태 저장소를 먼저 만들고, 이어 세 화면과 접근 가능한 feedback을 연결한다.
+- QA: loading, empty, error, success, 세션 만료, stale 응답, 늦게 도착한 응답 무시, 중복 클릭과 reload 사례를 검증한다.
 - 제외: 로그인, 자유 입력, 개인화 AI.
-- 다음 진입 조건: `quest-loop`, `frontend-state`, `frontend-journey` 계약 테스트 통과.
+- 다음 진입 조건: `mvp-frontend-state`와 `mvp-frontend-journey`의 독립 검증 통과.
 
 ### Slice 3: 릴리스 후보
 
@@ -230,27 +249,57 @@ QA는 두 패키지의 신뢰 증거를 각 source head 기준으로 독립 판�
 - frontend: production image에서 same-origin `/api` proxy를 사용한다.
 - QA: compose smoke, Playwright, responsive/a11y smoke, session 격리를 검증한다.
 - 제외: 클라우드 계정 생성과 운영 배포.
-- 완료 조건: `release-stack`과 `release-e2e`가 통합 head에서 통과하고 runbook의 실행·health check·rollback이 재현된다.
+- 완료 조건: `mvp-release-stack`과 독립 `mvp-release-e2e`가 새 immutable 통합 head에서 통과하고 runbook의 실행·health check·rollback이 재현된다.
+
+### 실행 패키지
+
+| packageId | 역할 | 실제 선행 조건 | 실행 목표와 소유 경로 | 패키지 완료 조건 |
+| --- | --- | --- | --- | --- |
+| `mvp-backend-core` | `backend` | 없음 | `backend/`의 build, session, schema, journey/quest API와 테스트를 새로 만든다. frontend와 release 파일은 수정하지 않는다. | 세션 격리, 원자적 다음 행동 생성, command replay/reuse, stale version, 비활성 quest, rollback을 양성·음성·실패 회귀로 검증하고 backend test와 health test를 통과한다. |
+| `mvp-frontend-shell` | `frontend-ui` | 없음 | `frontend/`의 package 설정, 공용 app/style/component, 라우팅과 화면 boundary를 만든다. API/store 기능은 만들지 않는다. | `/`, `/start`, `/quest`의 heading/focus 구조와 loading·empty·error·success shell을 component test, lint, build와 `360x800`·`768x1024`·`1280x800`에서 검증한다. |
+| `mvp-frontend-state` | `frontend-state` | `mvp-frontend-shell` | `frontend/src/api/`, `frontend/src/state/`에서 정본 API shape, credential 요청, command ID와 request lifecycle을 구현한다. | 성공·400·401·404·409, 동일 command 재시도, stale snapshot 교체, session 만료, 취소·늦은 응답 무시를 단위 테스트로 검증한다. |
+| `mvp-frontend-journey` | `frontend-ui` | `mvp-frontend-shell`, `mvp-frontend-state` | `frontend/src/features/`, `frontend/src/routes/`에서 랜딩·설정·현재 행동·재설계·최근 기록 흐름을 연결한다. | 완료와 재설계, reload 복원, 재시도, 키보드, `aria-live`, reduced motion과 세 viewport의 overflow 없는 화면을 component/integration test로 검증한다. |
+| `mvp-release-stack` | `backend-infra` | `mvp-backend-core`, `mvp-frontend-journey` | backend/frontend Dockerfile, `compose.yaml`, same-origin proxy, `ops/` smoke와 `docs/RUNBOOK.md`만 소유한다. 도메인 결함은 이 패키지에서 우회하지 않는다. | PostgreSQL readiness 뒤 API health가 되고 `/api/v1/**` proxy, secure-cookie 환경 주입, compose config/smoke가 통과하며 runbook에 백업·실행·health·로그·비파괴 rollback이 있다. |
+| `mvp-release-e2e` | `backend-infra` | `mvp-backend-core`, `mvp-frontend-journey`, `mvp-release-stack` | 독립 `e2e/` workspace에서 검증된 backend, frontend, release stack만 소비하는 release acceptance suite를 만든다. 제품·container 구현 파일은 수정하지 않는다. | 새 integration head와 깨끗한 browser context에서 신규·완료·재설계·reload·세션 격리·중복 명령·stale·오류 복구, 세 viewport와 키보드 흐름이 통과한다. |
+
+같은 역할 agent가 여러 명 실행되더라도 위 소유 경로를 넘지 않는다. 패키지 완료 보고에는
+검증한 immutable source head, 실제 명령, 기대·실제 결과, 실패 또는 skip 이유를 남긴다.
+backend와 frontend 결과는 서로의 테스트로 대체하지 않고, `mvp-release-e2e`가 두 결과와
+release stack을 결합해 제품 완료를 증명한다.
 
 ### 패키지 의존성
 
 ```text
-backend-foundation -> quest-loop ----------------------+
-                                                          -> release-stack -> release-e2e
-frontend-shell -> frontend-state -> frontend-journey --+
+mvp-backend-core ----------------------------------------------+
+                                                               +-> mvp-release-stack -> mvp-release-e2e
+mvp-frontend-shell -> mvp-frontend-state -> mvp-frontend-journey+
 ```
 
-`backend-foundation`과 `frontend-shell`은 병렬이다. `quest-loop`와 `frontend-state`도 정본 API 계약을 기준으로 병렬 구현할 수 있다. 패키지별 정확한 역할, 경로, 완료 조건은 AgentFlow `designBacklog`가 실행 정본이며 이 문서는 제품 계약 정본이다.
+`mvp-backend-core`와 `mvp-frontend-shell`은 병렬이다. backend 구현이 끝나기 전에도
+frontend는 이 문서의 정본 API 계약을 기준으로 진행할 수 있다. `mvp-release-e2e`의
+backend/frontend 의존성은 계약을 새로 정하기 위한 것이 아니라 각 source head의 검증 완료를
+요구하기 위한 것이다. 모든 edge는 실제 파일 기반 또는 릴리스 인수 선행 조건이며 순환하지 않는다.
 
 ### 충돌 방지 소유권
 
-- `backend-foundation`만 backend Gradle 파일, migration, session/config package를 수정한다.
-- `quest-loop`는 journey/quest package만 수정하고 build 의존성 추가가 필요하면 foundation 결정으로 되돌린다.
-- `frontend-shell`만 frontend package manager와 공용 app/style/component 파일을 수정한다.
-- `frontend-state`는 API와 상태 디렉터리, `frontend-journey`는 route와 화면 feature 디렉터리만 수정한다.
-- `release-stack`은 container, compose, verification script, runbook만 수정한다.
-- `release-e2e`는 독립 `e2e/` workspace만 수정한다.
+- `mvp-backend-core`만 backend Gradle 파일, migration, session/config 및 journey/quest package를 수정한다.
+- `mvp-frontend-shell`만 frontend package manager와 공용 app/style/component 파일을 수정한다.
+- `mvp-frontend-state`는 API와 상태 디렉터리, `mvp-frontend-journey`는 route와 화면 feature 디렉터리만 수정한다.
+- `mvp-release-stack`은 container, compose, verification script, runbook만 수정한다.
+- `mvp-release-e2e`는 독립 `e2e/` workspace만 수정한다.
 - CI workflow 같은 `.github/` 변경은 실행 backlog에 넣지 않고 별도 승인 후속 작업으로 남긴다.
+
+### 정본 통합과 진행 보고
+
+정본 통합은 `origin/main@1ee04def44b7c0c63d6f758b4fa8f9bf7297654b`에서 시작한
+새 패키지 source head만 DAG 순서로 포함한다. 통합 전후 ancestry를 확인해 PR #99 및 승인되지
+않은 과거 worker SHA가 조상이 아님을 증명한다. 개별 패키지 PASS를 제품 PASS로 승격하지 않는다.
+
+각 slice 보고는 `현재 패키지와 immutable head`, `변경 경로`, `실행 명령과 결과`, `남은 제품
+위험`, `다음 package 진입 조건`을 기록한다. Slice 1에서는 backend와 frontend 증거를 분리하고,
+Slice 2에서는 실제 request lifecycle과 사용자 여정을, Slice 3에서는 새 integration head의
+compose smoke와 release E2E를 기록한다. secret 값, 쿠키 원문, 사용자 입력 원문은 증적에 남기지
+않는다.
 
 ## 7. 통합 완료 조건
 
