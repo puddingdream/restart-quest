@@ -211,6 +211,15 @@ DB unique constraint와 transaction으로 1~8을 지키고 서비스 계층 검�
 
 `detail`에 입력 원문, SQL, stack trace, cookie, token을 포함하지 않는다. 예기치 않은 오류는 일반 문구와 correlation id만 반환한다.
 
+### 프런트엔드 통합 경계
+
+- feature flow는 별도 호환 변환층을 만들지 않고 `frontend/src/api/index.ts`와 `frontend/src/state/index.ts`의 공개 타입 및 `QuestFlowController`를 사용한다.
+- 화면 분기는 로컬 자원 유무를 추론하지 않고 마지막으로 성공한 bootstrap의 `nextRequiredAction`을 기준으로 한다. `CREATE_QUEST`, `DO_READY_ACTION`, `ADAPT_BLOCKED_ACTION`, `CREATE_NEXT_ACTION_OR_COMPLETE`, `START_NEW_QUEST` 이외의 값을 임의로 보정하지 않는다.
+- `QuestFlowController.submit()`은 성공한 write의 `nextRequiredAction`과 replay 여부만 즉시 반영하며 기존 `bootstrap` 자원 스냅샷을 자동 교체하지 않는다. 삭제 이외의 write가 성공하면 flow는 `initialize()`로 bootstrap을 다시 읽은 뒤 quest, action, pending adaptation, recent attempts를 렌더링한다. 이 재조회가 끝나기 전에는 이전 자원과 새 `nextRequiredAction`을 조합해 화면을 만들지 않는다.
+- submit 완료 뒤 `retainedSubmission === null`이고 `recoveryReason === null`인 경우만 성공으로 취급한다. validation, session 재생성, stale state 복구는 보존된 입력과 새 bootstrap을 함께 표시하고 자동 재전송하지 않는다. offline/5xx의 명시적 재시도는 준비된 같은 `Idempotency-Key`를 재사용한다.
+- workspace 삭제 204 뒤에는 이전 controller 스냅샷을 폐기하고 새 session/bootstrap으로 시작 화면을 구성한다. 삭제 요청의 성공 본문이나 `nextRequiredAction`을 가정하지 않는다.
+- UI 전용 타입은 API DTO를 대체하지 않는다. route 조립 계층에서 검증된 DTO를 `QuestSummary`, `ActionSummary`, `HistoryItem` 같은 표시 모델로 축소하며 식별자, quest version, pending suggestion은 command 생성에 필요한 동안 원본 bootstrap에서 보존한다.
+
 ## 7. 개인정보와 안전 기준
 
 - session token은 충분한 난수로 생성하고 DB에는 원문이 아닌 hash만 저장한다.
@@ -305,6 +314,7 @@ mvp-backend-core ─────────────────────
 - 의존 package: `mvp-backend-core`, `mvp-frontend-state`
 - 담당 사용자 흐름: 첫 세션 대표 흐름과 완료 후 다음 선택, 기록, 삭제를 실제 route로 연결
 - UI와 state를 실제 route로 결합하고 첫 세션 대표 흐름, reload 복구, 이력, 삭제를 완성한다.
+- 성공 write 뒤 bootstrap 재검증과 삭제 뒤 새 session/bootstrap 경계를 지켜 stale 자원 스냅샷을 렌더링하지 않는다.
 - 실제 backend와의 contract smoke 및 Playwright 핵심 흐름을 추가한다.
 - 정본 계약 변경이 필요하면 임의 호환 코드를 넣지 않고 설계 변경으로 되돌린다.
 - 다음 진입 조건: 실제 backend를 대상으로 대표 흐름과 reload/오류 복구 smoke가 통과한다.
