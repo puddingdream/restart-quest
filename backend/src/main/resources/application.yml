@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: restart-quest-backend
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/restart_quest}
+    username: ${DB_USERNAME:restart_quest}
+    password: ${DB_PASSWORD:}
+  flyway:
+    enabled: true
+  jackson:
+    default-property-inclusion: non_null
+server:
+  error:
+    include-message: never
+    include-stacktrace: never
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+app:
+  security:
+    allowed-origins: ${RQ_ALLOWED_ORIGINS:http://localhost:8080}
+    cookie-secure: ${RQ_COOKIE_SECURE:false}
