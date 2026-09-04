@@ -329,6 +329,15 @@ mvp-backend-core ─────────────────────
 - 제외 범위: 클라우드 계정 생성, DNS/TLS 변경, 운영 서버 수정, CI/repository-control 변경
 - 완료 조건: 11장의 릴리스 판정을 같은 통합 revision에서 모두 충족한다.
 
+#### 동일 origin 릴리스 실행 계약
+
+- 브라우저에는 web과 API를 하나의 public origin으로 노출한다. web은 frontend production 정적 산출물을 제공하고 `/api/v1/**`는 path를 바꾸지 않고 backend로 전달한다. SPA fallback은 `/api/**`에 적용하지 않는다.
+- frontend는 현재 계약처럼 상대 경로 `/api/v1`과 cookie credentials를 사용한다. production build에 backend의 내부 host나 별도 CORS origin을 주입하지 않는다.
+- `RQ_ALLOWED_ORIGINS`에는 브라우저가 실제로 사용하는 public origin을 명시한다. HTTPS 배포에서는 `RQ_COOKIE_SECURE`를 활성화하고, proxy는 CSRF 검증에 쓰이는 `Origin`을 임의의 내부 origin으로 치환하지 않는다.
+- backend readiness는 PostgreSQL 연결과 Flyway migration 성공 뒤 `/actuator/health`로 판정한다. web readiness는 정적 entry 응답과 `/api/v1/bootstrap`의 도달 가능성을 분리해 확인하며, session이 없는 bootstrap의 401은 API 도달 성공으로 취급하되 제품 smoke 성공으로 오인하지 않는다.
+- release package가 설정할 환경 변수 이름은 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `RQ_ALLOWED_ORIGINS`, `RQ_COOKIE_SECURE`로 고정한다. 저장소와 compose에 운영 secret 값이나 안전하지 않은 production 기본값을 넣지 않는다.
+- 통합 smoke는 mock route 없이 public web origin에서 `POST /api/v1/session`으로 cookie를 받은 뒤 대표 흐름과 삭제까지 수행한다. 검증 revision은 backend와 frontend production artifact가 함께 만들어진 동일 commit으로 기록한다.
+
 ### 파일 소유권과 충돌 금지 범위
 
 | package | 수정 소유 범위 | 수정하지 않는 범위 |
