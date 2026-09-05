@@ -12,6 +12,7 @@ import {
   QuestCompletedScreen,
   ReadyScreen,
   StartScreen,
+  WorkspaceAccessUnavailableScreen,
 } from './QuestScreens';
 
 const previews = [
@@ -28,6 +29,7 @@ const previews = [
   '데이터 관리',
   'loading',
   'error',
+  '작업 공간 접근 불가',
 ] as const;
 
 type Preview = (typeof previews)[number];
@@ -96,6 +98,7 @@ export function UiPreview() {
       {preview === '데이터 관리' ? <DataManagementScreen onDelete={noop} /> : null}
       {preview === 'loading' ? <LoadingScreen /> : null}
       {preview === 'error' ? <ErrorScreen message="연결을 확인한 뒤 입력을 유지한 채 다시 시도해 주세요." onRetry={noop} /> : null}
+      {preview === '작업 공간 접근 불가' ? <WorkspaceAccessUnavailableScreen onStartNewWorkspace={noop} /> : null}
     </AppShell>
   );
 }

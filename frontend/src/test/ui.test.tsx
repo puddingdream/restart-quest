@@ -14,6 +14,7 @@ import {
   QuestCompletedScreen,
   ReadyScreen,
   StartScreen,
+  WorkspaceAccessUnavailableScreen,
 } from '../ui/QuestScreens';
 
 const noop = () => undefined;
@@ -33,6 +34,7 @@ describe('독립 화면 상태', () => {
     ['loading', <LoadingScreen />, '현재 행동을 불러오는 중이에요'],
     ['empty', <HistoryScreen state="empty" />, '아직 기록이 없어요'],
     ['error', <ErrorScreen message="입력을 유지한 채 다시 시도해 주세요." onRetry={noop} />, '화면을 불러오지 못했어요'],
+    ['WORKSPACE_ACCESS_UNAVAILABLE', <WorkspaceAccessUnavailableScreen onStartNewWorkspace={noop} />, '작업 공간에 접근할 수 없어요'],
   ])('%s 상태를 단독 렌더링한다', async (_state, component, heading) => {
     const { container } = render(component);
     expect(screen.getByRole('heading', { level: 1, name: heading })).toBeInTheDocument();
@@ -60,6 +62,18 @@ describe('폼 접근성과 사용자 입력', () => {
     await user.tab();
     expect(screen.getByRole('button', { name: '작은 행동 시작하기' })).toHaveFocus();
     await expectNoAccessibilityViolations(container);
+  });
+
+  it('첫 목표 저장 전에 전체 보존 제한을 상시 문구로 표시한다', () => {
+    render(<StartScreen onSubmit={noop} />);
+
+    const notice = screen.getByLabelText('익명 저장과 보관 안내');
+    const submit = screen.getByRole('button', { name: '작은 행동 시작하기' });
+    expect(notice).toHaveTextContent('이 브라우저에서만 접근할 수 있어요');
+    expect(notice).toHaveTextContent('복구하거나 즉시 삭제할 수 없어요');
+    expect(notice).toHaveTextContent('90일 동안 사용하지 않으면 다음 정리 배치에서 삭제');
+    expect(notice).toHaveTextContent('격리된 백업에는 최대 30일 더 남을 수 있어요');
+    expect(notice.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('오류 문구를 form 안에 지속적으로 표시하고 입력값을 보존한다', () => {
@@ -129,13 +143,39 @@ describe('CTA와 보조 화면', () => {
     await expectNoAccessibilityViolations(container);
   });
 
-  it('데이터 삭제 CTA는 별도 위험 문구와 함께 제공한다', async () => {
+  it('데이터 관리 화면은 보존 제한과 백업 잔존을 삭제 CTA 전에 알린다', async () => {
     const onDelete = vi.fn();
     const user = userEvent.setup();
     const { container } = render(<DataManagementScreen onDelete={onDelete} />);
-    expect(screen.getByText(/영구적으로 삭제되며 되돌릴 수 없어요/)).toBeInTheDocument();
+    const notice = screen.getByLabelText('익명 저장과 보관 안내');
+    expect(notice).toHaveTextContent('90일 동안 사용하지 않으면 다음 정리 배치에서 삭제');
+    expect(notice).toHaveTextContent('격리된 백업에는 최대 30일 더 남을 수 있어요');
+    expect(screen.getByText(/서비스 중인 작업 공간에서 제거돼요/)).toBeInTheDocument();
+    expect(screen.getByText(/이미 격리된 백업에는 최대 30일 남을 수 있으며/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '내 데이터 모두 삭제하기' }));
     expect(onDelete).toHaveBeenCalledOnce();
+    await expectNoAccessibilityViolations(container);
+  });
+
+  it('접근 불가 상태를 generic 안내로 읽고 키보드로 새 작업 공간을 명시적으로 시작한다', async () => {
+    const onStartNewWorkspace = vi.fn();
+    const user = userEvent.setup();
+    const { container } = render(
+      <WorkspaceAccessUnavailableScreen onStartNewWorkspace={onStartNewWorkspace} />,
+    );
+
+    const heading = screen.getByRole('heading', { name: '작업 공간에 접근할 수 없어요' });
+    const description = screen.getByText(/이 브라우저에서 이전 작업 공간에 접근할 수 없어요/);
+    const button = screen.getByRole('button', { name: '새 작업 공간 시작' });
+    expect(description).toHaveTextContent('이전 기록은 복구할 수 없습니다');
+    expect(container).not.toHaveTextContent(/쿠키|cookie|삭제됐|위조|복구 중|재연결/);
+    expect(heading.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(description.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await user.tab();
+    expect(button).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(onStartNewWorkspace).toHaveBeenCalledOnce();
     await expectNoAccessibilityViolations(container);
   });
 });
