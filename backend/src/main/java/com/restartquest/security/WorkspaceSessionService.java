@@ -10,6 +10,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.Base64;
 import java.util.HexFormat;
@@ -21,6 +23,7 @@ import java.util.UUID;
 public class WorkspaceSessionService {
     public static final String REQUEST_WORKSPACE = "workspaceSession";
     public static final String COOKIE_NAME = "rq_session";
+    public static final Duration SESSION_TTL = Duration.ofDays(90);
 
     private final JdbcTemplate jdbc;
     private final SecureRandom secureRandom = new SecureRandom();
@@ -32,18 +35,21 @@ public class WorkspaceSessionService {
     public Optional<WorkspaceSession> resolve(String sessionToken) {
         if (sessionToken == null || sessionToken.isBlank()) return Optional.empty();
         List<WorkspaceSession> rows = jdbc.query(
-                "select id, timezone, csrf_token from workspaces where session_hash = ?",
+                "select id, timezone, csrf_token, last_activity_at from workspaces where session_hash = ?",
                 (rs, row) -> new WorkspaceSession(
                         rs.getObject("id", UUID.class), rs.getString("timezone"),
-                        rs.getString("csrf_token"), sessionToken, false),
+                        rs.getString("csrf_token"), sessionToken, false,
+                        rs.getObject("last_activity_at", OffsetDateTime.class)),
                 sha256(sessionToken));
         return rows.stream().findFirst();
     }
 
     @Transactional
     public WorkspaceSession createOrReuse(String timezone, String currentToken) {
-        Optional<WorkspaceSession> existing = resolve(currentToken);
-        if (existing.isPresent()) return existing.get();
+        if (currentToken != null && !currentToken.isBlank()) {
+            WorkspaceSession existing = resolve(currentToken).orElseThrow(WorkspaceSessionService::accessUnavailable);
+            return touch(existing.id(), currentToken);
+        }
 
         String normalizedTimezone = timezone == null ? "" : timezone.trim();
         if (!ZoneId.getAvailableZoneIds().contains(normalizedTimezone)) {
@@ -54,15 +60,37 @@ public class WorkspaceSessionService {
         UUID id = UUID.randomUUID();
         String sessionToken = randomToken();
         String csrfToken = randomToken();
-        jdbc.update("insert into workspaces(id, timezone, session_hash, csrf_token) values (?, ?, ?, ?)",
+        return jdbc.queryForObject(
+                "insert into workspaces(id, timezone, session_hash, csrf_token) values (?, ?, ?, ?) " +
+                        "returning id, timezone, csrf_token, last_activity_at",
+                (rs, row) -> new WorkspaceSession(rs.getObject("id", UUID.class), rs.getString("timezone"),
+                        rs.getString("csrf_token"), sessionToken, true,
+                        rs.getObject("last_activity_at", OffsetDateTime.class)),
                 id, normalizedTimezone, sha256(sessionToken), csrfToken);
-        return new WorkspaceSession(id, normalizedTimezone, csrfToken, sessionToken, true);
+    }
+
+    @Transactional
+    public WorkspaceSession touch(UUID workspaceId, String sessionToken) {
+        List<WorkspaceSession> rows = jdbc.query(
+                "update workspaces set last_activity_at = clock_timestamp() where id = ? " +
+                        "returning id, timezone, csrf_token, last_activity_at",
+                (rs, row) -> new WorkspaceSession(rs.getObject("id", UUID.class), rs.getString("timezone"),
+                        rs.getString("csrf_token"), sessionToken, false,
+                        rs.getObject("last_activity_at", OffsetDateTime.class)),
+                workspaceId);
+        if (rows.isEmpty()) throw accessUnavailable();
+        return rows.getFirst();
+    }
+
+    public void touchLocked(UUID workspaceId) {
+        int updated = jdbc.update("update workspaces set last_activity_at = clock_timestamp() where id = ?", workspaceId);
+        if (updated == 0) throw accessUnavailable();
     }
 
     public void lock(UUID workspaceId) {
         Integer found = jdbc.query("select 1 from workspaces where id = ? for update",
                 rs -> rs.next() ? 1 : null, workspaceId);
-        if (found == null) throw ApiException.notFound();
+        if (found == null) throw accessUnavailable();
     }
 
     static String sha256(String value) {
@@ -80,6 +108,16 @@ public class WorkspaceSessionService {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
+    public static ApiException accessUnavailable() {
+        return new ApiException(HttpStatus.UNAUTHORIZED, "WORKSPACE_ACCESS_UNAVAILABLE",
+                "작업 공간에 접근할 수 없습니다.", "이 브라우저에서 이전 작업 공간에 접근할 수 없습니다.");
+    }
+
     public record WorkspaceSession(
-            UUID id, String timezone, String csrfToken, String sessionToken, boolean created) {}
+            UUID id, String timezone, String csrfToken, String sessionToken, boolean created,
+            OffsetDateTime lastActivityAt) {
+        public OffsetDateTime expiresAt() {
+            return lastActivityAt.plus(SESSION_TTL);
+        }
+    }
 }

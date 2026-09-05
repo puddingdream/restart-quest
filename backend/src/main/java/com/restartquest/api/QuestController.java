@@ -57,10 +57,11 @@ public class QuestController {
             @Valid @RequestBody SessionRequest request,
             @CookieValue(name = WorkspaceSessionService.COOKIE_NAME, required = false) String currentToken) {
         WorkspaceSession workspace = sessions.createOrReuse(request.timezone(), currentToken);
-        ResponseCookie cookie = sessionCookie(workspace.sessionToken(), Duration.ofDays(365));
+        ResponseCookie cookie = sessionCookie(workspace.sessionToken(), WorkspaceSessionService.SESSION_TTL);
         return ResponseEntity.status(workspace.created() ? HttpStatus.CREATED : HttpStatus.OK)
                 .header(HttpHeaders.SET_COOKIE, cookie.toString())
-                .body(Map.of("csrfToken", workspace.csrfToken()));
+                .body(Map.of("csrfToken", workspace.csrfToken(),
+                        "workspaceExpiresAt", workspace.expiresAt().toInstant().toString()));
     }
 
     @GetMapping("/bootstrap")

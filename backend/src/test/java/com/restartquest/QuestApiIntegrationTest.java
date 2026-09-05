@@ -3,10 +3,12 @@ package com.restartquest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restartquest.api.ApiExceptionHandler;
+import com.restartquest.infra.WorkspaceCleanupService;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import jakarta.servlet.http.Cookie;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,6 +18,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -23,16 +26,23 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.io.IOException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
+import javax.sql.DataSource;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -57,6 +67,8 @@ class QuestApiIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired JdbcTemplate jdbc;
+    @Autowired WorkspaceCleanupService cleanup;
+    @Autowired DataSource dataSource;
 
     @BeforeEach
     void resetDatabase() {
@@ -89,7 +101,10 @@ class QuestApiIntegrationTest {
         mvc.perform(get("/api/v1/bootstrap").cookie(new Cookie("rq_session", first.token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nextRequiredAction").value("CREATE_QUEST"))
-                .andExpect(jsonPath("$.csrfToken").value(first.csrf));
+                .andExpect(jsonPath("$.csrfToken").value(first.csrf))
+                .andExpect(jsonPath("$.workspaceExpiresAt").isString())
+                .andExpect(header().string("Set-Cookie",
+                        org.hamcrest.Matchers.containsString("Max-Age=7776000")));
 
         mvc.perform(post("/api/v1/session")
                         .cookie(new Cookie("rq_session", first.token))
@@ -97,10 +112,15 @@ class QuestApiIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"timezone\":\"UTC\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.csrfToken").value(first.csrf));
+                .andExpect(jsonPath("$.csrfToken").value(first.csrf))
+                .andExpect(jsonPath("$.workspaceExpiresAt").isString())
+                .andExpect(header().string("Set-Cookie",
+                        org.hamcrest.Matchers.containsString("Max-Age=7776000")));
 
         MvcResult created = createQuest(first, UUID.randomUUID(), "내 목표", "지원서 작성", 10)
                 .andExpect(status().isCreated())
+                .andExpect(header().string("Set-Cookie",
+                        org.hamcrest.Matchers.containsString("Max-Age=7776000")))
                 .andReturn();
         JsonNode createdBody = json(created);
         String actionId = createdBody.at("/action/id").asText();
@@ -120,6 +140,113 @@ class QuestApiIntegrationTest {
                         .content("{\"outcome\":\"DONE\"}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("CSRF_INVALID"));
+    }
+
+    @Test
+    void staleNonEmptyCookieIsClearedWithoutCreatingOrDisclosingAWorkspace() throws Exception {
+        String unknownToken = "unrecognized-session-token";
+        mvc.perform(get("/api/v1/bootstrap").cookie(new Cookie("rq_session", unknownToken)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("WORKSPACE_ACCESS_UNAVAILABLE"))
+                .andExpect(jsonPath("$.detail").value("이 브라우저에서 이전 작업 공간에 접근할 수 없습니다."))
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString(unknownToken))))
+                .andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.allOf(
+                        org.hamcrest.Matchers.containsString("rq_session="),
+                        org.hamcrest.Matchers.containsString("Max-Age=0"))));
+
+        mvc.perform(post("/api/v1/session")
+                        .cookie(new Cookie("rq_session", unknownToken))
+                        .header("Origin", ORIGIN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"timezone\":\"UTC\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("WORKSPACE_ACCESS_UNAVAILABLE"))
+                .andExpect(header().string("Set-Cookie",
+                        org.hamcrest.Matchers.containsString("Max-Age=0")));
+        assertThat(jdbc.queryForObject("select count(*) from workspaces", Integer.class)).isZero();
+    }
+
+    @Test
+    void qualifyingActivityUsesDatabaseTimeAndSecurityFailuresDoNotExtendTtl() throws Exception {
+        Session session = session();
+        UUID workspaceId = jdbc.queryForObject("select id from workspaces", UUID.class);
+        OffsetDateTime oldActivity = OffsetDateTime.parse("2025-01-01T00:00:00Z");
+        jdbc.update("update workspaces set last_activity_at = ? where id = ?", oldActivity, workspaceId);
+
+        mvc.perform(post("/api/v1/session")
+                        .cookie(new Cookie("rq_session", session.token))
+                        .header("Origin", ORIGIN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"timezone\":\"UTC\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.workspaceExpiresAt").isString())
+                .andExpect(header().string("Set-Cookie",
+                        org.hamcrest.Matchers.containsString("Max-Age=7776000")));
+        assertThat(lastActivity(workspaceId)).isAfter(oldActivity);
+        jdbc.update("update workspaces set last_activity_at = ? where id = ?", oldActivity, workspaceId);
+
+        mvc.perform(post("/api/v1/quests")
+                        .cookie(new Cookie("rq_session", session.token))
+                        .header("Origin", ORIGIN)
+                        .header("X-CSRF-Token", "invalid")
+                        .header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist("Set-Cookie"));
+        assertThat(lastActivity(workspaceId)).isEqualTo(oldActivity);
+
+        mvc.perform(post("/api/v1/quests")
+                        .cookie(new Cookie("rq_session", session.token))
+                        .header("Origin", "https://not-allowed.example")
+                        .header("X-CSRF-Token", session.csrf)
+                        .header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist("Set-Cookie"));
+        assertThat(lastActivity(workspaceId)).isEqualTo(oldActivity);
+
+        mvc.perform(options("/api/v1/quests").header("Origin", ORIGIN)).andReturn();
+        assertThat(lastActivity(workspaceId)).isEqualTo(oldActivity);
+
+        mvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk());
+        assertThat(lastActivity(workspaceId)).isEqualTo(oldActivity);
+
+        MvcResult bootstrap = mvc.perform(get("/api/v1/bootstrap")
+                        .cookie(new Cookie("rq_session", session.token)))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Set-Cookie",
+                        org.hamcrest.Matchers.containsString("Max-Age=7776000")))
+                .andReturn();
+        OffsetDateTime touched = lastActivity(workspaceId);
+        assertThat(touched).isAfter(oldActivity);
+        assertThat(Instant.parse(json(bootstrap).get("workspaceExpiresAt").asText()))
+                .isEqualTo(touched.plusDays(90).toInstant());
+
+        jdbc.update("update workspaces set last_activity_at = ? where id = ?", oldActivity, workspaceId);
+        write(session, post("/api/v1/quests"), UUID.randomUUID(),
+                "{\"title\":\"   \",\"firstAction\":{\"title\":\"작은 행동\",\"estimatedMinutes\":5}}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        assertThat(lastActivity(workspaceId)).isAfter(oldActivity);
+
+        jdbc.update("update workspaces set last_activity_at = ? where id = ?", oldActivity, workspaceId);
+        mvc.perform(get("/api/v1/history").cookie(new Cookie("rq_session", session.token)))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Set-Cookie",
+                        org.hamcrest.Matchers.containsString("Max-Age=7776000")));
+        assertThat(lastActivity(workspaceId)).isAfter(oldActivity);
+
+        createQuest(session, UUID.randomUUID(), "활동 목표", "작은 행동", 5)
+                .andExpect(status().isCreated());
+        jdbc.update("update workspaces set last_activity_at = ? where id = ?", oldActivity, workspaceId);
+        createQuest(session, UUID.randomUUID(), "다른 목표", "다른 행동", 5)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ACTIVE_QUEST_EXISTS"));
+        assertThat(lastActivity(workspaceId)).isAfter(oldActivity);
     }
 
     @Test
@@ -244,6 +371,100 @@ class QuestApiIntegrationTest {
                 UUID.randomUUID(), workspace, firstQuest)).isInstanceOf(DataIntegrityViolationException.class);
         assertThat(jdbc.queryForObject(
                 "select count(*) from flyway_schema_history where success", Integer.class)).isPositive();
+        assertThat(jdbc.queryForObject(
+                "select count(*) from flyway_schema_history where version = '2' and success", Integer.class))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "select count(*) from pg_indexes where schemaname = current_schema() " +
+                        "and indexname = 'ix_workspaces_cleanup'", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void forwardMigrationBackfillsExistingV1WorkspaceAtMigrationTime() {
+        String schema = "forward_" + UUID.randomUUID().toString().replace("-", "");
+        DriverManagerDataSource isolatedDataSource = new DriverManagerDataSource(
+                POSTGRES.jdbcUrl(), "postgres", "");
+        Flyway.configure().dataSource(isolatedDataSource).schemas(schema).target("1").load().migrate();
+        JdbcTemplate isolated = new JdbcTemplate(isolatedDataSource);
+        UUID workspaceId = UUID.randomUUID();
+        isolated.update("insert into " + schema +
+                        ".workspaces(id, timezone, session_hash, csrf_token) values (?, 'UTC', ?, 'csrf')",
+                workspaceId, "f".repeat(64));
+        OffsetDateTime beforeMigration = isolated.queryForObject("select clock_timestamp()", OffsetDateTime.class);
+
+        Flyway.configure().dataSource(isolatedDataSource).schemas(schema).load().migrate();
+
+        OffsetDateTime backfilled = isolated.queryForObject(
+                "select last_activity_at from " + schema + ".workspaces where id = ?",
+                OffsetDateTime.class, workspaceId);
+        assertThat(backfilled).isNotNull().isAfterOrEqualTo(beforeMigration);
+        assertThat(isolated.queryForObject(
+                "select count(*) from pg_indexes where schemaname = ? and indexname = 'ix_workspaces_cleanup'",
+                Integer.class, schema)).isEqualTo(1);
+    }
+
+    @Test
+    void cleanupUsesStrictCutoffAndCascadesAllWorkspaceData() throws Exception {
+        OffsetDateTime cutoff = OffsetDateTime.parse("2026-01-01T00:00:00Z");
+        Session expired = session();
+        UUID expiredWorkspace = jdbc.queryForObject("select id from workspaces", UUID.class);
+        MvcResult created = createQuest(expired, UUID.randomUUID(), "만료 목표", "만료 행동", 5)
+                .andExpect(status().isCreated()).andReturn();
+        String actionId = json(created).at("/action/id").asText();
+        write(expired, post("/api/v1/actions/{id}/attempts", actionId), UUID.randomUUID(),
+                "{\"outcome\":\"DONE\"}").andExpect(status().isCreated());
+        jdbc.update("update workspaces set last_activity_at = ? where id = ?", cutoff.minusSeconds(1), expiredWorkspace);
+
+        UUID exactWorkspace = insertWorkspace("1".repeat(64), cutoff);
+        UUID recentWorkspace = insertWorkspace("2".repeat(64), cutoff.plusDays(1));
+        WorkspaceCleanupService.CleanupResult result = cleanup.cleanupExpiredBefore(cutoff);
+
+        assertThat(result.skipped()).isFalse();
+        assertThat(result.deleted()).isEqualTo(1);
+        assertThat(result.batches()).isEqualTo(1);
+        assertThat(result.backlog()).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from quests where workspace_id = ?", Integer.class,
+                expiredWorkspace)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from attempts where workspace_id = ?", Integer.class,
+                expiredWorkspace)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from idempotency_records where workspace_id = ?",
+                Integer.class, expiredWorkspace)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from workspaces where id in (?, ?)", Integer.class,
+                exactWorkspace, recentWorkspace)).isEqualTo(2);
+
+        mvc.perform(get("/api/v1/bootstrap").cookie(new Cookie("rq_session", expired.token)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("WORKSPACE_ACCESS_UNAVAILABLE"));
+        assertThat(jdbc.queryForObject("select count(*) from workspaces where id = ?", Integer.class,
+                expiredWorkspace)).isZero();
+    }
+
+    @Test
+    void cleanupHasSingleRunnerAndStopsAfterTwentyBatches() throws Exception {
+        OffsetDateTime cutoff = OffsetDateTime.parse("2026-01-01T00:00:00Z");
+        jdbc.update("insert into workspaces(id, timezone, session_hash, csrf_token, last_activity_at) " +
+                "select md5('batch-' || n)::uuid, 'UTC', lpad(n::text, 64, '0'), 'csrf', ? " +
+                "from generate_series(1, 10001) n", cutoff.minusDays(1));
+        WorkspaceCleanupService.CleanupResult limited = cleanup.cleanupExpiredBefore(cutoff);
+        assertThat(limited.deleted()).isEqualTo(10_000);
+        assertThat(limited.batches()).isEqualTo(20);
+        assertThat(limited.backlog()).isEqualTo(1);
+
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement lock = connection.prepareStatement("select pg_advisory_lock(?)");
+                PreparedStatement unlock = connection.prepareStatement("select pg_advisory_unlock(?)")) {
+            long lockId = 0x52515354544cL;
+            lock.setLong(1, lockId);
+            lock.executeQuery().close();
+            try {
+                WorkspaceCleanupService.CleanupResult skipped = cleanup.cleanupExpiredBefore(cutoff);
+                assertThat(skipped.skipped()).isTrue();
+                assertThat(skipped.deleted()).isZero();
+            } finally {
+                unlock.setLong(1, lockId);
+                unlock.executeQuery().close();
+            }
+        }
     }
 
     @Test
@@ -315,6 +536,9 @@ class QuestApiIntegrationTest {
                         .content("{\"timezone\":\"Asia/Seoul\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.csrfToken").isString())
+                .andExpect(jsonPath("$.workspaceExpiresAt").isString())
+                .andExpect(header().string("Set-Cookie",
+                        org.hamcrest.Matchers.containsString("Max-Age=7776000")))
                 .andReturn();
         String setCookie = result.getResponse().getHeader("Set-Cookie");
         assertThat(setCookie).isNotNull();
@@ -324,6 +548,19 @@ class QuestApiIntegrationTest {
 
     private JsonNode json(MvcResult result) throws Exception {
         return objectMapper.readTree(result.getResponse().getContentAsByteArray());
+    }
+
+    private OffsetDateTime lastActivity(UUID workspaceId) {
+        return jdbc.queryForObject("select last_activity_at from workspaces where id = ?",
+                OffsetDateTime.class, workspaceId);
+    }
+
+    private UUID insertWorkspace(String sessionHash, OffsetDateTime lastActivity) {
+        UUID workspaceId = UUID.randomUUID();
+        jdbc.update("insert into workspaces(id, timezone, session_hash, csrf_token, last_activity_at) " +
+                        "values (?, 'UTC', ?, 'csrf', ?)",
+                workspaceId, sessionHash, lastActivity);
+        return workspaceId;
     }
 
     private static TestPostgres startPostgres() {
