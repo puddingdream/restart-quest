@@ -34,6 +34,7 @@ public class IdempotencyService {
         UUID key = parseKey(keyValue);
         String digest = digest(request);
         sessions.lock(workspaceId);
+        sessions.touchLocked(workspaceId);
         jdbc.update("delete from idempotency_records where workspace_id = ? and route = ? " +
                 "and idempotency_key = ? and expires_at <= now()", workspaceId, route, key);
 

@@ -1,11 +1,14 @@
 package com.restartquest.api;
 
+import com.restartquest.security.WorkspaceSessionService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -21,6 +24,11 @@ import java.util.UUID;
 @RestControllerAdvice
 public class ApiExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+    private final boolean secureCookie;
+
+    public ApiExceptionHandler(@Value("${app.security.cookie-secure:false}") boolean secureCookie) {
+        this.secureCookie = secureCookie;
+    }
 
     @ExceptionHandler(ApiException.class)
     ResponseEntity<Map<String, Object>> api(ApiException exception, HttpServletRequest request) {
@@ -70,6 +78,11 @@ public class ApiExceptionHandler {
         body.put("traceId", traceId);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_PROBLEM_JSON);
+        if ("WORKSPACE_ACCESS_UNAVAILABLE".equals(code)) {
+            headers.add(HttpHeaders.SET_COOKIE, ResponseCookie
+                    .from(WorkspaceSessionService.COOKIE_NAME, "")
+                    .httpOnly(true).secure(secureCookie).sameSite("Lax").path("/api/v1").maxAge(0).build().toString());
+        }
         return new ResponseEntity<>(body, headers, status);
     }
 

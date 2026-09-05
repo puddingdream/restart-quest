@@ -164,6 +164,7 @@ public class QuestService {
         result.put("recentAttempts", historyItems(workspace.id(), null, 10));
         result.put("nextRequiredAction", next);
         result.put("csrfToken", workspace.csrfToken());
+        result.put("workspaceExpiresAt", workspace.expiresAt().toInstant().toString());
         return result;
     }
 
