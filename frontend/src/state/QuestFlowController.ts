@@ -26,8 +26,15 @@ export type RecoveryReason =
   | 'VALIDATION'
   | 'SESSION_RECREATED'
   | 'STALE_STATE'
+  | 'WORKSPACE_ACCESS_UNAVAILABLE'
   | 'OFFLINE'
   | 'SERVER_ERROR';
+
+export const COMPLETED_TITLE_STORAGE_KEY = 'restart-quest.completed-title';
+
+export interface WorkspaceSessionStorage {
+  removeItem(key: string): void;
+}
 
 type CommandResponse = CreateQuestResponse | ActionResponse | AttemptResponse | QuestResponse | void;
 
@@ -38,7 +45,7 @@ export interface RetainedSubmission {
 }
 
 export interface QuestFlowState {
-  phase: 'idle' | 'loading' | 'ready' | 'submitting' | 'error';
+  phase: 'idle' | 'loading' | 'ready' | 'submitting' | 'error' | 'workspace-access-unavailable' | 'deleted';
   bootstrap: BootstrapResponse | null;
   nextRequiredAction: NextRequiredAction | null;
   retainedSubmission: RetainedSubmission | null;
@@ -64,7 +71,11 @@ export class QuestFlowController {
   private mutationInFlight: Promise<void> | null = null;
   private retryMutation: PreparedMutation<CommandResponse> | null = null;
 
-  constructor(private readonly api: ApiClient, private readonly timezone: string) {}
+  constructor(
+    private readonly api: ApiClient,
+    private readonly timezone: string,
+    private readonly sessionStorage: WorkspaceSessionStorage | null = resolveSessionStorage(),
+  ) {}
 
   getSnapshot = (): QuestFlowState => this.state;
 
@@ -77,6 +88,22 @@ export class QuestFlowController {
     if (this.bootstrapInFlight) return this.bootstrapInFlight;
     this.setState({ ...this.state, phase: 'loading', recoveryReason: null });
     const pending = this.loadBootstrap(true)
+      .then(() => undefined)
+      .catch((error: unknown) => this.setBootstrapFailure(error))
+      .finally(() => {
+        this.bootstrapInFlight = null;
+      });
+    this.bootstrapInFlight = pending;
+    return pending;
+  }
+
+  startNewWorkspace(): Promise<void> {
+    if (this.bootstrapInFlight) return this.bootstrapInFlight;
+
+    this.clearWorkspaceData();
+    this.setState({ ...INITIAL_STATE, phase: 'loading' });
+    const pending = this.api.createSession(this.timezone)
+      .then(() => this.loadBootstrap(false))
       .then(() => undefined)
       .catch((error: unknown) => this.setBootstrapFailure(error))
       .finally(() => {
@@ -117,7 +144,7 @@ export class QuestFlowController {
 
   private runMutation(prepared: PreparedMutation<CommandResponse>, command: QuestCommand): Promise<void> {
     this.mutationInFlight = prepared.execute()
-      .then((result) => this.setMutationSuccess(result))
+      .then((result) => this.setMutationSuccess(result, command))
       .catch((error: unknown) => this.handleMutationFailure(error, prepared, command))
       .finally(() => {
         this.mutationInFlight = null;
@@ -148,7 +175,12 @@ export class QuestFlowController {
       return;
     }
 
-    if (error instanceof ApiProblemError && error.status === 401) {
+    if (isWorkspaceAccessUnavailable(error)) {
+      this.enterWorkspaceAccessUnavailable();
+      return;
+    }
+
+    if (isSessionRequired(error)) {
       this.retryMutation = null;
       await this.recoverAfterWrite(retained(false), 'SESSION_RECREATED', true);
       return;
@@ -187,6 +219,10 @@ export class QuestFlowController {
         recoveryReason,
       });
     } catch (recoveryError) {
+      if (isWorkspaceAccessUnavailable(recoveryError)) {
+        this.enterWorkspaceAccessUnavailable();
+        return;
+      }
       const reason: RecoveryReason = recoveryError instanceof ApiTransportError ? 'OFFLINE' : 'SERVER_ERROR';
       this.setState({
         ...this.state,
@@ -203,7 +239,7 @@ export class QuestFlowController {
       this.setBootstrapSuccess(bootstrap);
       return bootstrap;
     } catch (error) {
-      if (!(error instanceof ApiProblemError) || error.status !== 401 || !recreateOnUnauthorized) throw error;
+      if (!recreateOnUnauthorized || !isSessionRequired(error)) throw error;
       await this.api.createSession(this.timezone);
       const bootstrap = await this.api.getBootstrap();
       this.setBootstrapSuccess(bootstrap);
@@ -222,6 +258,10 @@ export class QuestFlowController {
   }
 
   private setBootstrapFailure(error: unknown): void {
+    if (isWorkspaceAccessUnavailable(error)) {
+      this.enterWorkspaceAccessUnavailable();
+      return;
+    }
     this.setState({
       ...this.state,
       phase: 'error',
@@ -229,7 +269,13 @@ export class QuestFlowController {
     });
   }
 
-  private setMutationSuccess(result: MutationResult<CommandResponse>): void {
+  private setMutationSuccess(result: MutationResult<CommandResponse>, command: QuestCommand): void {
+    if (command.kind === 'DELETE_WORKSPACE') {
+      this.clearWorkspaceData();
+      this.setState({ ...INITIAL_STATE, phase: 'deleted' });
+      return;
+    }
+
     const data = result.data;
     this.retryMutation = null;
     this.setState({
@@ -265,6 +311,43 @@ export class QuestFlowController {
   private setState(next: QuestFlowState): void {
     this.state = next;
     this.listeners.forEach((listener) => listener());
+  }
+
+  private enterWorkspaceAccessUnavailable(): void {
+    this.clearWorkspaceData();
+    this.setState({
+      ...INITIAL_STATE,
+      phase: 'workspace-access-unavailable',
+      recoveryReason: 'WORKSPACE_ACCESS_UNAVAILABLE',
+    });
+  }
+
+  private clearWorkspaceData(): void {
+    this.retryMutation = null;
+    this.api.clearSession();
+    try {
+      this.sessionStorage?.removeItem(COMPLETED_TITLE_STORAGE_KEY);
+    } catch {
+      // 접근할 수 없는 storage에는 이 세션에서 재노출할 수 있는 값도 없습니다.
+    }
+  }
+}
+
+function isSessionRequired(error: unknown): error is ApiProblemError {
+  return error instanceof ApiProblemError && error.status === 401 && error.problem.code === 'SESSION_REQUIRED';
+}
+
+function isWorkspaceAccessUnavailable(error: unknown): error is ApiProblemError {
+  return error instanceof ApiProblemError
+    && error.status === 401
+    && error.problem.code === 'WORKSPACE_ACCESS_UNAVAILABLE';
+}
+
+function resolveSessionStorage(): WorkspaceSessionStorage | null {
+  try {
+    return globalThis.sessionStorage;
+  } catch {
+    return null;
   }
 }
 

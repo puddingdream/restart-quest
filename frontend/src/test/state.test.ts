@@ -5,11 +5,17 @@ import {
   type BootstrapResponse,
   type NextRequiredAction,
 } from '../api';
-import { QuestFlowController, type QuestCommand } from '../state';
+import {
+  COMPLETED_TITLE_STORAGE_KEY,
+  QuestFlowController,
+  type QuestCommand,
+  type WorkspaceSessionStorage,
+} from '../state';
 import { createMockHttp, jsonResponse, type HttpStep } from './httpFixture';
 
 const UUID = '123e4567-e89b-42d3-a456-426614174000';
 const CREATED_AT = '2026-09-05T00:00:00Z';
+const EXPIRES_AT = '2026-12-04T00:00:00Z';
 
 const createQuest = {
   kind: 'CREATE_QUEST',
@@ -31,6 +37,7 @@ function bootstrap(
     recentAttempts: [],
     nextRequiredAction,
     csrfToken: 'csrf-for-tests',
+    workspaceExpiresAt: EXPIRES_AT,
     ...overrides,
   };
 }
@@ -68,18 +75,18 @@ function problem(status: number, code: string, fieldErrors: Array<{ field: strin
   };
 }
 
-function setup(steps: HttpStep[]) {
+function setup(steps: HttpStep[], storage: WorkspaceSessionStorage | null = null) {
   const http = createMockHttp(steps);
   const api = new ApiClient({ fetch: http.fetch, uuid: () => UUID });
-  const flow = new QuestFlowController(api, 'Asia/Seoul');
-  return { flow, http };
+  const flow = new QuestFlowController(api, 'Asia/Seoul', storage);
+  return { api, flow, http };
 }
 
 describe('session bootstrap과 typed server state', () => {
   it('새 방문의 401에서 session을 만든 뒤 bootstrap을 복구한다', async () => {
     const { flow, http } = setup([
       jsonResponse(problem(401, 'SESSION_REQUIRED'), 401),
-      jsonResponse({ csrfToken: 'new-csrf' }, 201),
+      jsonResponse({ csrfToken: 'new-csrf', workspaceExpiresAt: EXPIRES_AT }, 201),
       jsonResponse(bootstrap('CREATE_QUEST', { csrfToken: 'new-csrf' })),
     ]);
 
@@ -93,6 +100,7 @@ describe('session bootstrap과 typed server state', () => {
     expect(flow.getSnapshot()).toMatchObject({
       phase: 'ready',
       nextRequiredAction: 'CREATE_QUEST',
+      bootstrap: { workspaceExpiresAt: EXPIRES_AT },
     });
   });
 
@@ -113,6 +121,51 @@ describe('session bootstrap과 typed server state', () => {
     const result = await api.getBootstrap();
 
     expect(result.nextRequiredAction).toBe(nextRequiredAction);
+  });
+
+  it('접근 불가 cookie를 자동 복구하지 않고 로컬 상태를 지운 뒤 명시적 새 시작만 허용한다', async () => {
+    const removedKeys: string[] = [];
+    const storage: WorkspaceSessionStorage = { removeItem: (key) => removedKeys.push(key) };
+    const { flow, http } = setup([
+      jsonResponse(bootstrap('DO_READY_ACTION')),
+      new TypeError('offline'),
+      jsonResponse(problem(401, 'WORKSPACE_ACCESS_UNAVAILABLE'), 401),
+      jsonResponse({ csrfToken: 'new-csrf', workspaceExpiresAt: EXPIRES_AT }, 201),
+      jsonResponse(bootstrap('CREATE_QUEST', { csrfToken: 'new-csrf' })),
+    ], storage);
+    await flow.initialize();
+    await flow.submit(createQuest);
+
+    await flow.initialize();
+
+    expect(http.calls.map((call) => String(call.input))).toEqual([
+      '/api/v1/bootstrap',
+      '/api/v1/quests',
+      '/api/v1/bootstrap',
+    ]);
+    expect(flow.getSnapshot()).toEqual({
+      phase: 'workspace-access-unavailable',
+      bootstrap: null,
+      nextRequiredAction: null,
+      retainedSubmission: null,
+      fieldErrors: {},
+      recoveryReason: 'WORKSPACE_ACCESS_UNAVAILABLE',
+      lastMutationReplayed: false,
+    });
+    expect(removedKeys).toEqual([COMPLETED_TITLE_STORAGE_KEY]);
+
+    await flow.startNewWorkspace();
+
+    expect(http.calls.slice(3).map((call) => [String(call.input), call.init?.method ?? 'GET'])).toEqual([
+      ['/api/v1/session', 'POST'],
+      ['/api/v1/bootstrap', 'GET'],
+    ]);
+    expect(flow.getSnapshot()).toMatchObject({
+      phase: 'ready',
+      nextRequiredAction: 'CREATE_QUEST',
+      bootstrap: { workspaceExpiresAt: EXPIRES_AT },
+    });
+    expect(removedKeys).toEqual([COMPLETED_TITLE_STORAGE_KEY, COMPLETED_TITLE_STORAGE_KEY]);
   });
 });
 
@@ -174,7 +227,7 @@ describe('write 안전성과 입력 보존', () => {
     const { flow, http } = setup([
       jsonResponse(bootstrap('CREATE_QUEST')),
       jsonResponse(problem(401, 'SESSION_REQUIRED'), 401),
-      jsonResponse({ csrfToken: 'recreated-csrf' }, 201),
+      jsonResponse({ csrfToken: 'recreated-csrf', workspaceExpiresAt: EXPIRES_AT }, 201),
       jsonResponse(bootstrap('CREATE_QUEST', { csrfToken: 'recreated-csrf' })),
     ]);
     await flow.initialize();
@@ -227,6 +280,45 @@ describe('write 안전성과 입력 보존', () => {
       bootstrap: { pendingAdaptation },
       retainedSubmission: { command: createQuest, retryable: false },
     });
+  });
+
+  it('write 중 접근 불가 전환과 workspace 삭제 성공에서 이전 브라우저 상태를 제거한다', async () => {
+    const removedKeys: string[] = [];
+    const storage: WorkspaceSessionStorage = { removeItem: (key) => removedKeys.push(key) };
+    const unavailable = setup([
+      jsonResponse(bootstrap('CREATE_QUEST')),
+      jsonResponse(problem(401, 'WORKSPACE_ACCESS_UNAVAILABLE'), 401),
+    ], storage);
+    await unavailable.flow.initialize();
+
+    await unavailable.flow.submit(createQuest);
+
+    expect(unavailable.http.calls).toHaveLength(2);
+    expect(unavailable.flow.getSnapshot()).toMatchObject({
+      phase: 'workspace-access-unavailable',
+      bootstrap: null,
+      retainedSubmission: null,
+      recoveryReason: 'WORKSPACE_ACCESS_UNAVAILABLE',
+    });
+
+    const deleted = setup([
+      jsonResponse(bootstrap('DO_READY_ACTION')),
+      new Response(null, { status: 204 }),
+    ], storage);
+    await deleted.flow.initialize();
+
+    await deleted.flow.submit({ kind: 'DELETE_WORKSPACE' });
+
+    expect(deleted.flow.getSnapshot()).toEqual({
+      phase: 'deleted',
+      bootstrap: null,
+      nextRequiredAction: null,
+      retainedSubmission: null,
+      fieldErrors: {},
+      recoveryReason: null,
+      lastMutationReplayed: false,
+    });
+    expect(removedKeys).toEqual([COMPLETED_TITLE_STORAGE_KEY, COMPLETED_TITLE_STORAGE_KEY]);
   });
 
   it.each([

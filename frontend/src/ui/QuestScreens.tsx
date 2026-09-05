@@ -1,5 +1,11 @@
 import type { FormEvent } from 'react';
-import { InlineError, PageIntro, StatePanel, StatusLabel } from './primitives';
+import {
+  InlineError,
+  PageIntro,
+  StatePanel,
+  StatusLabel,
+  WorkspaceRetentionNotice,
+} from './primitives';
 import type { ActionSummary, QuestSummary, StartQuestValues } from './types';
 
 interface StartScreenProps {
@@ -32,10 +38,7 @@ export function StartScreen({
         title="오늘의 작은 행동부터 시작해요"
         description="막히면 실패로 끝내지 않고, 지금 할 수 있는 더 작은 행동으로 다시 설계해 드려요."
       />
-      <aside className="privacy-note" aria-label="익명 저장 안내">
-        <span aria-hidden="true">i</span>
-        <p>이 브라우저에 익명으로 저장되며 계정 복구와 기기 동기화는 제공하지 않아요.</p>
-      </aside>
+      <WorkspaceRetentionNotice />
       <form className="form-stack" onSubmit={handleSubmit} noValidate>
         <div className="field">
           <label htmlFor="quest-title">이루고 싶은 구직 목표</label>
@@ -199,5 +202,43 @@ export function ErrorScreen({ message, onRetry }: { message: string; onRetry: ()
       description={message}
       action={<button className="button button--primary" onClick={onRetry}>다시 시도하기</button>}
     />
+  );
+}
+
+interface WorkspaceAccessUnavailableScreenProps {
+  isStarting?: boolean;
+  errorMessage?: string;
+  onStartNewWorkspace: () => void;
+}
+
+export function WorkspaceAccessUnavailableScreen({
+  isStarting = false,
+  errorMessage,
+  onStartNewWorkspace,
+}: WorkspaceAccessUnavailableScreenProps) {
+  return (
+    <section
+      className="state-panel state-panel--error"
+      aria-labelledby="workspace-access-title"
+      aria-describedby="workspace-access-description"
+    >
+      <span className="state-symbol" aria-hidden="true">!</span>
+      <h1 id="workspace-access-title">작업 공간에 접근할 수 없어요</h1>
+      <p id="workspace-access-description">
+        이 브라우저에서 이전 작업 공간에 접근할 수 없어요. 이전 기록은 복구할 수 없습니다.
+      </p>
+      <p>계속하려면 사용자가 직접 새 작업 공간을 시작해야 해요.</p>
+      {errorMessage ? <InlineError>{errorMessage}</InlineError> : null}
+      <div className="state-action">
+        <button
+          className="button button--primary"
+          type="button"
+          onClick={onStartNewWorkspace}
+          disabled={isStarting}
+        >
+          {isStarting ? '새 작업 공간을 시작하는 중…' : '새 작업 공간 시작'}
+        </button>
+      </div>
+    </section>
   );
 }
