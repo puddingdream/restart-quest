@@ -105,3 +105,19 @@ export function InlineError({ id, children }: PropsWithChildren<{ id?: string }>
     </p>
   );
 }
+
+export function WorkspaceRetentionNotice() {
+  return (
+    <aside className="privacy-note" aria-label="익명 저장과 보관 안내">
+      <span aria-hidden="true">i</span>
+      <div>
+        <strong>이 브라우저에만 저장돼요</strong>
+        <p>
+          이 브라우저에서만 접근할 수 있어요. 브라우저 데이터를 지우거나 잃으면 기록을 복구하거나
+          즉시 삭제할 수 없어요. 90일 동안 사용하지 않으면 다음 정리 배치에서 삭제되며, 격리된
+          백업에는 최대 30일 더 남을 수 있어요.
+        </p>
+      </div>
+    </aside>
+  );
+}
