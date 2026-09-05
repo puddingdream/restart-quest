@@ -68,6 +68,7 @@ export interface HistoryEntry {
 
 export interface SessionResponse {
   csrfToken: string;
+  workspaceExpiresAt: string;
 }
 
 export interface BootstrapResponse {
@@ -78,6 +79,7 @@ export interface BootstrapResponse {
   recentAttempts: HistoryEntry[];
   nextRequiredAction: NextRequiredAction;
   csrfToken: string;
+  workspaceExpiresAt: string;
 }
 
 export interface HistoryResponse {

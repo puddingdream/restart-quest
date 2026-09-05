@@ -108,6 +108,10 @@ export class ApiClient {
     return parseSuccess(await this.request(`/history?${query}`), parseHistoryResponse);
   }
 
+  clearSession(): void {
+    this.csrfToken = null;
+  }
+
   prepareCreateQuest(input: CreateQuestRequest): PreparedMutation<CreateQuestResponse> {
     return this.prepareJsonWrite('POST', '/quests', input, parseCreateQuestResponse);
   }
@@ -261,7 +265,10 @@ async function parseProblem(response: Response): Promise<ProblemDetails> {
 
 function parseSession(value: unknown): SessionResponse {
   const object = asObject(value, 'session');
-  return { csrfToken: asString(object.csrfToken, 'session.csrfToken') };
+  return {
+    csrfToken: asString(object.csrfToken, 'session.csrfToken'),
+    workspaceExpiresAt: asString(object.workspaceExpiresAt, 'session.workspaceExpiresAt'),
+  };
 }
 
 function parseBootstrap(value: unknown): BootstrapResponse {
@@ -274,6 +281,7 @@ function parseBootstrap(value: unknown): BootstrapResponse {
     recentAttempts: asArray(object.recentAttempts, 'bootstrap.recentAttempts').map(parseHistoryEntry),
     nextRequiredAction: parseNextRequiredAction(object.nextRequiredAction),
     csrfToken: asString(object.csrfToken, 'bootstrap.csrfToken'),
+    workspaceExpiresAt: asString(object.workspaceExpiresAt, 'bootstrap.workspaceExpiresAt'),
   };
 }
 
