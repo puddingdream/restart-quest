@@ -1,0 +1,9 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+app:
+  security:
+    allowed-origins: ${RQ_ALLOWED_ORIGINS}
+    cookie-secure: true
