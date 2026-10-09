@@ -198,3 +198,31 @@ test('화면 파일은 같은 origin에서 제공하고 숨김 파일과 API 외
   assert.equal((await fetch(`${base}/missing.html`)).status, 404);
   assert.equal((await fetch(`${base}/api/quests`)).status, 200);
 });
+
+test('기본 정적 경로는 저장소 실행 디렉터리의 client/dist다', async (t) => {
+  const options = await fixture(t);
+  const distDir = join(options.directory, 'client', 'dist');
+  await mkdir(distDir, { recursive: true });
+  await writeFile(join(distDir, 'index.html'), '<main>빌드 화면</main>');
+  await writeFile(join(distDir, 'app.js'), 'export const built = true;');
+  await writeFile(join(distDir, 'styles.css'), 'body { color: black; }');
+
+  const cwd = t.mock.method(process, 'cwd', () => options.directory);
+  let base;
+  try {
+    ({ base } = await listen(t, { dataFile: options.dataFile }));
+  } finally {
+    cwd.mock.restore();
+  }
+
+  for (const [path, expected] of [
+    ['/', '<main>빌드 화면</main>'],
+    ['/app.js', 'export const built = true;'],
+    ['/styles.css', 'body { color: black; }'],
+  ]) {
+    const response = await fetch(`${base}${path}`);
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), expected);
+  }
+  assert.deepEqual((await request(base, 'GET')).data, { quests: [] });
+});

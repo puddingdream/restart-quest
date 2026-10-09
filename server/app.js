@@ -90,7 +90,7 @@ async function serveStatic(request, response, publicDir, pathname) {
 
 export async function createQuestServer({
   dataFile = resolve('data/quests.json'),
-  publicDir = resolve('public'),
+  publicDir = resolve('client/dist'),
 } = {}) {
   const store = await createQuestStore(dataFile);
   return createServer(async (request, response) => {
