@@ -17,6 +17,7 @@
 ## 기술·실행 구조
 
 - Node.js 22 이상, ECMAScript 모듈의 단일 HTTP 서버와 브라우저 기본 HTML·CSS·JavaScript를 사용한다. 첫 slice에 유료 API, 데이터베이스 서버, 번들러, 계정이 필요하지 않다. 단일 서버가 정적 화면과 `/api/*`를 같은 origin에서 제공한다. 화면은 실제 API 응답을 렌더링한다.
+- 정적 화면은 `client`에서 `npm run build`를 실행해 `client/dist`에 만든다. 저장소 루트에서 `npm start`를 실행하면 서버는 실행 디렉터리 기준 `client/dist`를 기본 정적 경로로 사용해 `/`, `/app.js`, `/quest-app.js`, `/styles.css`를 API와 같은 origin에서 제공한다. 따라서 기본 실행에서는 빌드가 서버 시작보다 앞선다. `QUEST_PUBLIC_DIR`를 설정하면 서버 진입점의 정적 경로를 재정의하고, `createQuestServer`를 직접 호출할 때는 `publicDir` 옵션으로 재정의한다. 이는 빌드 출력과 서버 기본 경로를 일치시키는 계약이다([서버 변경 PR #145](https://github.com/puddingdream/restart-quest/pull/145), [클라이언트 검증 PR #146](https://github.com/puddingdream/restart-quest/pull/146)).
 - 서버가 입력 검증, 퀘스트 선택, ID 생성, 저장을 소유한다. 화면은 서버가 반환한 퀘스트를 임의로 다시 계산하거나 성공 상태를 먼저 표시하지 않는다.
 - 저장소는 단일 프로세스의 로컬 JSON 스냅샷이다. `QUEST_DATA_FILE`이 설정되면 그 경로, 아니면 저장소 실행 디렉터리의 `data/quests.json`을 쓴다. README는 이 비밀값 없는 설정과 실행·테스트 명령을 구현 완료 시 기록한다. 사용자의 실제 기록 파일은 Git에 포함하지 않도록 구현 단계에서 로컬 데이터 경로의 ignore 처리를 확인한다.
 - 첫 slice에는 두 개 이상의 서버 프로세스가 같은 파일에 쓰는 배포를 지원하지 않는다. 다중 인스턴스가 필요해지면 파일 잠금 또는 트랜잭션 DB로 저장 계약을 교체해야 한다.
