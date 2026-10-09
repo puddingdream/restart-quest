@@ -41,9 +41,11 @@ async function stopProcess(child) {
 }
 
 async function startServer(dataFile) {
+  const env = { ...process.env, PORT: '0', QUEST_DATA_FILE: dataFile };
+  delete env.QUEST_PUBLIC_DIR;
   const server = spawn(process.execPath, [serverEntry], {
     cwd: repoDir,
-    env: { ...process.env, PORT: '0', QUEST_DATA_FILE: dataFile, QUEST_PUBLIC_DIR: clientDir },
+    env,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   });
@@ -176,6 +178,12 @@ try {
   const documentResponse = await fetch(`${running.origin}/`);
   assert.equal(documentResponse.status, 200);
   assert.match(await documentResponse.text(), /src="\/app\.js"/);
+  for (const [path, contentType] of [['/app.js', 'javascript'], ['/styles.css', 'css']]) {
+    const assetResponse = await fetch(`${running.origin}${path}`);
+    assert.equal(assetResponse.status, 200, `${path} is served from the default public directory`);
+    assert.match(assetResponse.headers.get('content-type') ?? '', new RegExp(contentType));
+    assert.ok((await assetResponse.text()).length > 0, `${path} is not empty`);
+  }
 
   browser = await startBrowser(profile);
   await browser.page.navigate(`${running.origin}/`);
