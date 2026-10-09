@@ -1,0 +1,13 @@
+{
+  "name": "restart-quest-client",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test --experimental-test-isolation=none test/*.test.js",
+    "lint": "node --check app.js && node --check quest-app.js && node --check test/quest-app.test.js && node --check test/browser-smoke.js && node --check test/e2e.js",
+    "build": "node scripts/build.js",
+    "smoke": "node test/browser-smoke.js",
+    "test:e2e": "node test/e2e.js"
+  }
+}
