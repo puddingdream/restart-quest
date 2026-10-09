@@ -1,0 +1,32 @@
+{
+  "quest": {
+    "id": "6d4e86be-c832-4a80-8853-1b0d7a11a723",
+    "createdAt": "2026-10-09T00:00:00.000Z",
+    "availableMinutes": 20,
+    "energy": "medium",
+    "title": "경험 한 항목 초안 쓰기",
+    "description": "지원에 쓸 경험 한 항목을 두세 문장으로 적는다.",
+    "estimatedMinutes": 20,
+    "status": "pending",
+    "failureReason": null,
+    "completedAt": null,
+    "failedAt": null,
+    "parentQuestId": null,
+    "rootQuestId": "6d4e86be-c832-4a80-8853-1b0d7a11a723"
+  },
+  "empty": { "quests": [] },
+  "invalidInput": {
+    "error": {
+      "code": "INVALID_INPUT",
+      "message": "시간은 5분에서 120분 사이의 정수로 입력해 주세요.",
+      "fields": { "availableMinutes": "5~120 사이의 정수가 필요합니다." }
+    }
+  },
+  "persistenceError": {
+    "error": {
+      "code": "PERSISTENCE_ERROR",
+      "message": "저장에 실패했습니다. 잠시 후 다시 확인해 주세요.",
+      "fields": {}
+    }
+  }
+}
