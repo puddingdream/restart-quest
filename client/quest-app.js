@@ -20,6 +20,40 @@ function messageFrom(body, fallback) {
     ? body.error.message : fallback;
 }
 
+function validDashboard(body) {
+  const counts = body?.counts;
+  const action = body?.nextAction;
+  if (!counts || !Array.isArray(body.histories) || !action ||
+      !['pending', 'completed', 'failed', 'redesigned'].every((key) =>
+        Number.isSafeInteger(counts[key]) && counts[key] >= 0) ||
+      !['create', 'resume', 'redesign', 'rest_or_create'].includes(action.kind)) return false;
+  const seen = new Set();
+  const totals = { pending: 0, completed: 0, failed: 0, redesigned: 0 };
+  let selected;
+  for (const history of body.histories) {
+    if (typeof history?.rootQuestId !== 'string' || !Array.isArray(history.quests) ||
+        history.quests.length === 0 || history.quests[0]?.id !== history.rootQuestId) return false;
+    for (const [index, quest] of history.quests.entries()) {
+      if (!quest || typeof quest.id !== 'string' || seen.has(quest.id) ||
+          typeof quest.title !== 'string' || !quest.title.trim() ||
+          !Number.isSafeInteger(quest.estimatedMinutes) || quest.estimatedMinutes < 1 ||
+          !['pending', 'completed', 'failed'].includes(quest.status) ||
+          quest.rootQuestId !== history.rootQuestId ||
+          quest.parentQuestId !== (index ? history.quests[index - 1].id : null)) return false;
+      seen.add(quest.id);
+      totals[quest.status]++;
+      if (quest.parentQuestId !== null) totals.redesigned++;
+    }
+    const tail = history.quests.at(-1);
+    if (action.questId === tail.id && action.rootQuestId === history.rootQuestId) selected = tail;
+  }
+  if (Object.keys(totals).some((key) => totals[key] !== counts[key])) return false;
+  if (action.kind === 'create') return action.questId === null && action.rootQuestId === null;
+  return selected && ((action.kind === 'resume' && selected.status === 'pending') ||
+    (action.kind === 'redesign' && selected.status === 'failed' && selected.estimatedMinutes > 1) ||
+    (action.kind === 'rest_or_create' && selected.status === 'failed' && selected.estimatedMinutes === 1));
+}
+
 async function readResponse(response) {
   let body;
   try {
@@ -63,6 +97,11 @@ export function createQuestApi(fetchRequest, requestTimeoutMs = REQUEST_TIMEOUT_
     }
   }
   return {
+    async dashboard() {
+      const body = await fetchJson('/api/dashboard', { headers: { Accept: 'application/json' } });
+      if (!validDashboard(body)) throw new Error('대시보드 응답의 형식을 확인할 수 없습니다.');
+      return body;
+    },
     async list() {
       const body = await fetchJson('/api/quests', { headers: { Accept: 'application/json' } });
       if (!Array.isArray(body?.quests)) throw new Error('저장 목록의 형식을 확인할 수 없습니다.');
@@ -132,7 +171,19 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
   const emptyState = element(document, 'empty-state');
   const list = element(document, 'quest-list');
   const resultSection = element(document, 'result-section');
+  const dashboardSection = document.getElementById('dashboard-section');
+  const dashboard = dashboardSection && {
+    content: element(document, 'dashboard-content'),
+    status: element(document, 'dashboard-status'),
+    error: element(document, 'dashboard-error'),
+    retry: element(document, 'dashboard-retry'),
+    next: element(document, 'dashboard-next'),
+    counts: element(document, 'dashboard-counts'),
+    empty: element(document, 'dashboard-empty'),
+    histories: element(document, 'dashboard-histories'),
+  };
   let listRequest = 0;
+  let dashboardRequest = 0;
   const pendingQuestIds = new Set();
 
   function showFieldErrors(fields = {}) {
@@ -159,9 +210,90 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
     return node;
   }
 
+  function dashboardLink(label, id) {
+    const link = note('a', label, 'action-button dashboard-link');
+    link.href = id ? `#quest-${id}` : '#quest-form';
+    return link;
+  }
+
+  function renderDashboard(body) {
+    const { counts, histories, nextAction } = body;
+    const nextBox = dashboard.next;
+    const selected = histories.flatMap((history) => history.quests)
+      .find((quest) => quest.id === nextAction.questId);
+    const heading = nextAction.kind === 'resume' ? '다음 행동 · 이어서 해볼까요?'
+      : nextAction.kind === 'redesign' ? '다음 행동 · 더 작게 시작해요'
+        : nextAction.kind === 'rest_or_create' ? '다음 행동 · 잠시 쉬어도 괜찮아요'
+          : '다음 행동 · 새 퀘스트 만들기';
+    const message = nextAction.kind === 'resume' ? `${selected.title} · 예상 ${selected.estimatedMinutes}분`
+      : nextAction.kind === 'redesign' ? `${selected.title} · ${FAILURE_REASONS[selected.failureReason] ?? '실패 이유 확인 필요'}`
+        : nextAction.kind === 'rest_or_create' ? '지금은 1분짜리 행동입니다. 잠시 쉬거나 새 퀘스트를 만들어 보세요.'
+          : '오늘 할 수 있는 작은 행동을 만들어 보세요.';
+    nextBox.replaceChildren(note('h3', heading), note('p', message),
+      dashboardLink(nextAction.kind === 'resume' ? '기록할 행동으로 이동'
+        : nextAction.kind === 'redesign' ? '더 작은 행동 제안으로 이동' : '퀘스트 만들기로 이동',
+      nextAction.kind === 'resume' || nextAction.kind === 'redesign' ? selected.id : null));
+    dashboard.counts.replaceChildren(...[
+      ['pending', '진행 전'], ['completed', '완료'], ['failed', '실패'], ['redesigned', '더 작은 행동'],
+    ].flatMap(([key, label]) => [note('dt', label), note('dd', String(counts[key]))]));
+    dashboard.empty.hidden = histories.length !== 0;
+    dashboard.histories.replaceChildren(...histories.map((history) => {
+      const group = document.createElement('section');
+      group.className = 'dashboard-history';
+      group.append(note('h3', history.quests[0].title),
+        note('p', `루트 ID: ${history.rootQuestId}`, 'quest-relation'));
+      const steps = document.createElement('ol');
+      for (const [index, quest] of history.quests.entries()) {
+        const state = quest.status === 'completed' ? '완료'
+          : quest.status === 'failed' ? `실패 · ${FAILURE_REASONS[quest.failureReason] ?? '이유 확인 필요'}` : '진행 전';
+        const step = document.createElement('li');
+        step.append(note('strong', `${quest.title} · 예상 ${quest.estimatedMinutes}분 · ${state}${index === history.quests.length - 1 ? ' · 현재 끝 행동' : ''}`),
+          note('p', `ID: ${quest.id}${quest.parentQuestId ? ` · 부모 ID: ${quest.parentQuestId}` : ''}`));
+        steps.append(step);
+      }
+      group.append(steps);
+      return group;
+    }));
+  }
+
+  async function loadDashboard() {
+    if (!dashboard) return;
+    const request = ++dashboardRequest;
+    dashboard.content.hidden = true;
+    dashboard.error.hidden = true;
+    dashboard.retry.hidden = true;
+    dashboard.status.textContent = '대시보드를 불러오는 중입니다.';
+    try {
+      const body = await api.dashboard();
+      if (request !== dashboardRequest) return;
+      renderDashboard(body);
+      dashboard.content.hidden = false;
+      dashboard.status.textContent = '저장된 대시보드를 확인했습니다.';
+      dashboard.retry.hidden = false;
+      return true;
+    } catch {
+      if (request !== dashboardRequest) return;
+      dashboard.status.textContent = '';
+      dashboard.error.textContent = '기록을 불러오지 못했습니다. 다시 시도해 주세요.';
+      dashboard.error.hidden = false;
+      dashboard.retry.hidden = false;
+      return false;
+    }
+  }
+
+  function invalidateDashboard() {
+    if (!dashboard) return;
+    ++dashboardRequest;
+    dashboard.content.hidden = true;
+    dashboard.error.hidden = true;
+    dashboard.retry.hidden = true;
+    dashboard.status.textContent = '저장된 기록을 다시 확인하는 중입니다.';
+  }
+
   function renderQuest(quest, childIds) {
     const item = document.createElement('li');
     item.className = 'quest-card';
+    item.id = `quest-${quest.id}`;
     item.dataset.questId = quest.id;
     item.quest = quest;
     item.append(note('h3', quest.title), note('p', quest.description),
@@ -235,6 +367,7 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
     async function submit(action, input) {
       if (pendingQuestIds.has(quest.id)) return;
       resultSection.hidden = true;
+      invalidateDashboard();
       error.hidden = true;
       setBusy(true, '요청 결과를 확인하는 중입니다.');
       try {
@@ -249,6 +382,7 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
           listError.textContent = '요청 결과를 확인하지 못했습니다. 저장 목록을 다시 불러와 주세요.';
           return;
         }
+        if (!cause.network && cause.status !== 409) await loadDashboard();
         const current = findCard(quest.id);
         if (cause.network && current &&
             (current.quest.status !== quest.status ||
@@ -335,6 +469,7 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
 
   async function loadList() {
     const request = ++listRequest;
+    const dashboardRefresh = loadDashboard();
     listStatus.textContent = '저장된 퀘스트를 불러오는 중입니다.';
     listError.hidden = true;
     retryButton.hidden = true;
@@ -346,6 +481,7 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
       list.replaceChildren(...quests.map((quest) => renderQuest(quest, childIds)));
       emptyState.hidden = quests.length !== 0;
       listStatus.textContent = quests.length ? `저장된 퀘스트 ${quests.length}개` : '';
+      await dashboardRefresh;
       return true;
     } catch (error) {
       if (request !== listRequest) return;
@@ -354,6 +490,7 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
       listError.textContent = error.message || '저장 목록을 불러오지 못했습니다.';
       listError.hidden = false;
       retryButton.hidden = false;
+      await dashboardRefresh;
       return false;
     }
   }
@@ -373,6 +510,7 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
       return;
     }
     button.disabled = true;
+    invalidateDashboard();
     button.textContent = '퀘스트를 저장하는 중입니다…';
     formStatus.textContent = '퀘스트를 저장하는 중입니다.';
     try {
@@ -389,6 +527,7 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
       formStatus.textContent = '퀘스트를 만들지 못했습니다.';
       // A lost POST response can follow a successful write. Refresh the list without retrying POST.
       if (!error.fields) await loadList();
+      else await loadDashboard();
     } finally {
       button.disabled = false;
       button.textContent = '오늘의 퀘스트 만들기 ↗';
@@ -396,6 +535,7 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
   });
 
   retryButton.addEventListener('click', loadList);
+  dashboard?.retry.addEventListener('click', loadDashboard);
   loadList();
-  return { loadList };
+  return { loadList, loadDashboard };
 }
