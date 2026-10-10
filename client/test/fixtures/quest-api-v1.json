@@ -1,0 +1,64 @@
+{
+  "quest": {
+    "id": "6d4e86be-c832-4a80-8853-1b0d7a11a723",
+    "createdAt": "2026-10-09T00:00:00.000Z",
+    "availableMinutes": 20,
+    "energy": "medium",
+    "title": "경험 한 항목 초안 쓰기",
+    "description": "지원에 쓸 경험 한 항목을 두세 문장으로 적는다.",
+    "estimatedMinutes": 20,
+    "status": "pending",
+    "failureReason": null,
+    "completedAt": null,
+    "failedAt": null,
+    "parentQuestId": null,
+    "rootQuestId": "6d4e86be-c832-4a80-8853-1b0d7a11a723"
+  },
+  "record": {
+    "completedAt": "2026-10-09T00:05:00.000Z",
+    "failedAt": "2026-10-09T00:06:00.000Z",
+    "childId": "9eeb1021-fd20-40dc-9fe9-d3f20bc91872",
+    "childCreatedAt": "2026-10-09T00:07:00.000Z"
+  },
+  "failureReasons": {
+    "time_shortage": { "label": "시간이 부족했어요", "title": "짧게 시작하기", "minutes": 10 },
+    "low_energy": { "label": "지금은 에너지가 부족했어요", "title": "자료 한 가지 준비하기", "minutes": 13 },
+    "unclear_start": { "label": "어디서 시작할지 막막했어요", "title": "첫 단서 한 줄 적기", "minutes": 6 }
+  },
+  "invalidReason": {
+    "error": {
+      "code": "INVALID_INPUT",
+      "message": "실패 이유를 선택해 주세요.",
+      "fields": { "failureReason": "지원하는 실패 이유를 선택해 주세요." }
+    }
+  },
+  "alreadyResolved": {
+    "error": {
+      "code": "QUEST_ALREADY_RESOLVED",
+      "message": "이미 기록된 퀘스트입니다. 저장된 상태를 확인해 주세요.",
+      "fields": {}
+    }
+  },
+  "alreadyRedesigned": {
+    "error": {
+      "code": "QUEST_ALREADY_REDESIGNED",
+      "message": "이미 더 작은 행동이 있습니다. 이력을 확인해 주세요.",
+      "fields": {}
+    }
+  },
+  "empty": { "quests": [] },
+  "invalidInput": {
+    "error": {
+      "code": "INVALID_INPUT",
+      "message": "시간은 5분에서 120분 사이의 정수로 입력해 주세요.",
+      "fields": { "availableMinutes": "5~120 사이의 정수가 필요합니다." }
+    }
+  },
+  "persistenceError": {
+    "error": {
+      "code": "PERSISTENCE_ERROR",
+      "message": "저장에 실패했습니다. 잠시 후 다시 확인해 주세요.",
+      "fields": {}
+    }
+  }
+}
