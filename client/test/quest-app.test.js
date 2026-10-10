@@ -48,6 +48,15 @@ function makeDocument() {
   return { nodes, getElementById: (id) => nodes[id], createElement: (tag) => new FakeNode(tag) };
 }
 
+function makeDashboardDocument() {
+  const document = makeDocument();
+  for (const id of ['dashboard-section', 'dashboard-content', 'dashboard-status',
+    'dashboard-error', 'dashboard-retry', 'dashboard-next', 'dashboard-counts',
+    'dashboard-empty', 'dashboard-histories']) document.nodes[id] = new FakeNode();
+  document.nodes['dashboard-content'].hidden = true;
+  return document;
+}
+
 function queuedFetch(...responses) {
   const calls = [];
   const fetchRequest = async (url, options) => {
@@ -78,6 +87,20 @@ const child = (reason) => ({ ...fixture.quest, id: fixture.record.childId,
   createdAt: fixture.record.childCreatedAt, title: fixture.failureReasons[reason].title,
   estimatedMinutes: fixture.failureReasons[reason].minutes,
   parentQuestId: fixture.quest.id, rootQuestId: fixture.quest.id });
+
+function dashboardFetch({ dashboards, lists, posts = [], histories = [] }) {
+  const calls = [];
+  const fetchRequest = async (url, options) => {
+    calls.push({ url, options });
+    const responses = url === '/api/dashboard' ? dashboards
+      : options?.method === 'POST' ? posts : url.endsWith('/history') ? histories : lists;
+    const next = responses.shift();
+    if (next instanceof Error) throw next;
+    if (!next) throw new Error(`Unexpected request: ${url}`);
+    return Response.json(next.body, { status: next.status ?? 200 });
+  };
+  return { fetchRequest, calls };
+}
 
 test('시간 경계와 상태를 숫자 계약으로 검증한다', () => {
   assert.deepEqual(parseInput('5', 'low').value, { availableMinutes: 5, energy: 'low' });
@@ -145,6 +168,148 @@ for (const [field, invalidValue, errorId] of [
     assert.equal(document.nodes[field].getAttribute('aria-invalid'), undefined);
   });
 }
+
+test('대시보드 빈 상태와 복합 체인은 서버 fixture의 수치·순서·다음 행동을 그대로 표시한다', async () => {
+  const document = makeDashboardDocument();
+  const rest = structuredClone(fixture.dashboardComplex);
+  rest.histories[0].quests[0].status = 'completed';
+  rest.histories[0].quests[0].completedAt = '2026-10-09T10:03:00.000Z';
+  rest.histories[3].quests[1].status = 'completed';
+  rest.histories[3].quests[1].completedAt = '2026-10-09T10:04:00.000Z';
+  rest.counts = { pending: 0, completed: 3, failed: 3, redesigned: 2 };
+  rest.nextAction = { kind: 'rest_or_create', questId: rest.histories[1].quests[1].id,
+    rootQuestId: rest.histories[1].rootQuestId };
+  const { fetchRequest, calls } = dashboardFetch({
+    dashboards: [body(fixture.dashboardEmpty), body(fixture.dashboardComplex), body(rest)],
+    lists: [body(fixture.empty)],
+  });
+  const app = mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  assert.equal(document.nodes['dashboard-content'].hidden, false);
+  assert.deepEqual(document.nodes['dashboard-counts'].children.filter((_, index) => index % 2).map((node) => node.textContent), ['0', '0', '0', '0']);
+  assert.equal(document.nodes['dashboard-empty'].hidden, false);
+  assert.equal(document.nodes['dashboard-next'].children[2].href, '#quest-form');
+
+  const refresh = app.loadDashboard();
+  assert.equal(document.nodes['dashboard-content'].hidden, true, '새 GET 동안 이전 수치를 숨긴다');
+  await refresh;
+  assert.deepEqual(document.nodes['dashboard-counts'].children.filter((_, index) => index % 2).map((node) => node.textContent), ['2', '1', '3', '2']);
+  const histories = document.nodes['dashboard-histories'].children;
+  assert.deepEqual(histories.map((node) => node.children[1].textContent),
+    ['55555555-5555-4555-8555-555555555555', '44444444-4444-4444-8444-444444444444',
+      '33333333-3333-4333-8333-333333333333', '11111111-1111-4111-8111-111111111111'].map((id) => `루트 ID: ${id}`));
+  assert.match(histories[3].children[2].children[1].children[0].textContent, /짧게 시작하기.*현재 끝 행동/);
+  assert.match(document.nodes['dashboard-next'].children[1].textContent, /짧게 시작하기.*5분/);
+  assert.equal(document.nodes['dashboard-next'].children[2].href, `#quest-${fixture.dashboardComplex.nextAction.questId}`);
+  await app.loadDashboard();
+  assert.match(document.nodes['dashboard-next'].children[1].textContent, /1분짜리 행동/);
+  assert.equal(document.nodes['dashboard-next'].children[2].href, '#quest-form');
+  assert.equal(calls.filter(({ url }) => url === '/api/dashboard').length, 3);
+});
+
+test('대시보드 500·단절·형식 오류는 이전 성공을 숨기고 GET 재시도에서만 복구한다', async () => {
+  const document = makeDashboardDocument();
+  const { fetchRequest, calls } = dashboardFetch({
+    dashboards: [body(fixture.dashboardComplex), body(fixture.dashboardError, 500),
+      new Error('disconnected'), body({ ...fixture.dashboardComplex, counts: { pending: 99 } }),
+      body(fixture.dashboardComplex)],
+    lists: [body({ quests: fixture.dashboardComplex.histories.flatMap((history) => history.quests) })],
+  });
+  const app = mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  for (let index = 0; index < 3; index++) {
+    await app.loadDashboard();
+    assert.equal(document.nodes['dashboard-content'].hidden, true);
+    assert.equal(document.nodes['dashboard-error'].hidden, false);
+    assert.equal(document.nodes['dashboard-retry'].hidden, false);
+    assert.match(document.nodes['dashboard-error'].textContent, /다시 시도/);
+  }
+  await document.nodes['dashboard-retry'].emit('click');
+  assert.equal(document.nodes['dashboard-content'].hidden, false);
+  assert.equal(document.nodes['dashboard-error'].hidden, true);
+  assert.equal(calls.filter(({ url }) => url === '/api/dashboard').length, 5);
+  assert.equal(calls.filter(({ options }) => options?.method === 'POST').length, 0);
+});
+
+test('늦게 도착한 이전 대시보드 응답은 최신 조회 결과를 덮어쓰지 않는다', async () => {
+  const document = makeDashboardDocument();
+  let releaseOld;
+  let reads = 0;
+  const fetchRequest = (url) => {
+    if (url === '/api/quests') return Promise.resolve(Response.json(fixture.empty));
+    reads++;
+    if (reads === 1) return new Promise((resolve) => { releaseOld = resolve; });
+    return Promise.resolve(Response.json(fixture.dashboardComplex));
+  };
+  const app = mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  await app.loadDashboard();
+  releaseOld(Response.json(fixture.dashboardEmpty));
+  await nextTurn();
+  assert.equal(document.nodes['dashboard-content'].hidden, false);
+  assert.equal(document.nodes['dashboard-counts'].children[1].textContent, '2');
+  assert.equal(reads, 2);
+});
+
+test('생성과 완료 확정 뒤 대시보드를 각각 재조회하고 응답에서만 수치를 표시한다', async () => {
+  const document = makeDashboardDocument();
+  const done = completed();
+  const dashboardPending = { counts: { pending: 1, completed: 0, failed: 0, redesigned: 0 },
+    histories: [{ rootQuestId: fixture.quest.id, quests: [fixture.quest] }],
+    nextAction: { kind: 'resume', questId: fixture.quest.id, rootQuestId: fixture.quest.id } };
+  const dashboardDone = { counts: { pending: 0, completed: 1, failed: 0, redesigned: 0 },
+    histories: [{ rootQuestId: done.id, quests: [done] }],
+    nextAction: { kind: 'create', questId: null, rootQuestId: null } };
+  const { fetchRequest, calls } = dashboardFetch({
+    dashboards: [body(fixture.dashboardEmpty), body(dashboardPending), body(dashboardDone)],
+    lists: [body(fixture.empty), body({ quests: [fixture.quest] }), body({ quests: [done] })],
+    posts: [body({ quest: fixture.quest }, 201), body({ quest: done })],
+  });
+  mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  await document.nodes['quest-form'].emit('submit');
+  assert.equal(document.nodes['dashboard-counts'].children[1].textContent, '1');
+  await findNode(card(document), '완료 기록').emit('click');
+  assert.equal(document.nodes['dashboard-counts'].children[3].textContent, '1');
+  assert.equal(document.nodes['dashboard-next'].children[2].href, '#quest-form');
+  assert.equal(calls.filter(({ url }) => url === '/api/dashboard').length, 3);
+  assert.equal(calls.filter(({ options }) => options?.method === 'POST').length, 2);
+});
+
+test('실패 이유와 재설계 뒤 대시보드의 다음 행동을 새 GET 응답으로 바꾼다', async () => {
+  const document = makeDashboardDocument();
+  const parent = failed('time_shortage');
+  const alternative = child('time_shortage');
+  const rootQuestId = fixture.quest.id;
+  const initial = { counts: { pending: 1, completed: 0, failed: 0, redesigned: 0 },
+    histories: [{ rootQuestId, quests: [fixture.quest] }],
+    nextAction: { kind: 'resume', questId: rootQuestId, rootQuestId } };
+  const afterFailure = { counts: { pending: 0, completed: 0, failed: 1, redesigned: 0 },
+    histories: [{ rootQuestId, quests: [parent] }],
+    nextAction: { kind: 'redesign', questId: rootQuestId, rootQuestId } };
+  const afterRedesign = { counts: { pending: 1, completed: 0, failed: 1, redesigned: 1 },
+    histories: [{ rootQuestId, quests: [parent, alternative] }],
+    nextAction: { kind: 'resume', questId: alternative.id, rootQuestId } };
+  const { fetchRequest, calls } = dashboardFetch({
+    dashboards: [body(initial), body(afterFailure), body(afterRedesign)],
+    lists: [body({ quests: [fixture.quest] }), body({ quests: [parent] }),
+      body({ quests: [alternative, parent] })],
+    posts: [body({ quest: parent }), body({ quest: alternative }, 201)],
+    histories: [body({ rootQuestId, quests: [parent, alternative] })],
+  });
+  mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  const reason = card(document).reasonSelect;
+  reason.value = 'time_shortage';
+  await reason.emit('change');
+  await findNode(card(document), '실패 기록').emit('click');
+  assert.match(document.nodes['dashboard-next'].children[0].textContent, /더 작게/);
+  assert.match(document.nodes['dashboard-next'].children[1].textContent, /시간이 부족/);
+  await findNode(card(document), '더 작은 행동 제안').emit('click');
+  assert.equal(document.nodes['dashboard-counts'].children[7].textContent, '1');
+  assert.equal(document.nodes['dashboard-next'].children[2].href, `#quest-${alternative.id}`);
+  assert.equal(calls.filter(({ url }) => url === '/api/dashboard').length, 3);
+});
 
 for (const [name, failure, expectsRefresh] of [
   ['서버 503', body(fixture.persistenceError, 503), false],

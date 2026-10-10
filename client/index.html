@@ -61,10 +61,25 @@
           <p id="result-minutes" class="duration"></p>
         </article>
       </section>
+      <section id="dashboard-section" class="panel dashboard" aria-labelledby="dashboard-title">
+        <div class="section-heading">
+          <span class="section-number" aria-hidden="true">03</span>
+          <div><h2 id="dashboard-title">나의 실행 기록</h2><p>저장된 행동과 다음에 할 수 있는 일을 확인해요.</p></div>
+        </div>
+        <p id="dashboard-status" role="status" aria-live="polite">기록을 불러오는 중입니다.</p>
+        <p id="dashboard-error" class="notice notice-error" role="alert" hidden></p>
+        <button id="dashboard-retry" class="text-button" type="button" hidden>대시보드 다시 불러오기</button>
+        <div id="dashboard-content" hidden>
+          <div id="dashboard-next" class="dashboard-next"></div>
+          <dl id="dashboard-counts" class="dashboard-counts"></dl>
+          <p id="dashboard-empty" class="empty-state" hidden>아직 기록이 없어요. 오늘의 첫 퀘스트를 만들어 보세요.</p>
+          <div id="dashboard-histories" class="dashboard-histories"></div>
+        </div>
+      </section>
 
       <section class="panel history" aria-labelledby="history-title">
         <div class="section-heading">
-          <span class="section-number" aria-hidden="true">03</span>
+          <span class="section-number" aria-hidden="true">04</span>
           <div><h2 id="history-title">저장된 퀘스트</h2><p>이전에 만든 행동을 여기서 다시 볼 수 있어요.</p></div>
         </div>
         <p id="list-status" role="status" aria-live="polite">저장된 퀘스트를 불러오는 중입니다.</p>
