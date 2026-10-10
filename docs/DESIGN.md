@@ -259,13 +259,15 @@ API 응답과 POST 본문은 JSON이다. 정상 응답과 오류 응답 모두 `
 
 ### 통합 계약의 소유와 후속 검증
 
+병렬 PR은 설계 계약 [#151](https://github.com/puddingdream/restart-quest/pull/151) → 서버 구현 [#152](https://github.com/puddingdream/restart-quest/pull/152) → 화면 연결 [#153](https://github.com/puddingdream/restart-quest/pull/153) → 실제 서버 브라우저 회귀 [#155](https://github.com/puddingdream/restart-quest/pull/155) 순서로 통합한다. 서버는 설계의 API·스냅샷 계약을 구현하고, 화면은 그 응답을 소비하며, 마지막 회귀는 합쳐진 서버와 화면을 검증한다.
+
 | 계약 | 생산자 | 소비자와 확인 기준 |
 | --- | --- | --- |
 | 퀘스트 v1과 HTTP 기록·재설계 | `server/quests.js`, `server/store.js`, `server/app.js` | `client/quest-app.js`는 전체 13개 필드의 `quest`, 평면 목록, 루트부터 최신 자손까지의 `history`를 사용한다. 완료·실패는 `200`, 재설계는 `201`, 잘못된 입력은 `400`, 상태 충돌은 `409`, 저장 실패는 `503`으로 구분한다. |
 | 실패 이유와 화면 행동 | 위 서버 계약 | `client/test/fixtures/quest-api-v1.json`의 세 이유 코드와 응답 구조를 `client/quest-app.js`가 사용한다. 선택 전 실패 기록을 막고, 확정 응답 뒤 목록·이력을 다시 읽으며, 응답 단절에는 POST를 자동 반복하지 않는다. |
 | 영속 관계 | `server/store.js`의 `schemaVersion: 1` 스냅샷 | 화면은 서버가 반환한 `parentQuestId`·`rootQuestId`와 history 순서를 표시한다. 집계 대시보드는 이 저장 기록을 읽는 후속 slice가 구현한다. |
 
-현재 서버 테스트는 실제 HTTP·파일 저장·재시작을, 화면 단위 테스트와 `smoke`는 fixture 기반 표시·조작을 각각 검사한다. 현재 `client/test/e2e.js`의 실제 서버 브라우저 범위는 생성·목록이다. 후속 통합 회귀는 이 파일을 완료·실패 이유·재설계·history까지 확장하고 같은 head에서 중복·역방향 요청, 400·409·503·통신 단절, 새로고침·서버 재시작, 1280px·390px을 검증한다. 이 증거 없이 fixture 결과를 실제 저장 연결의 증거로 사용하지 않는다.
+현재 서버 테스트는 실제 HTTP·파일 저장·재시작을, 화면 단위 테스트와 `smoke`는 fixture 기반 표시·조작을 각각 검사한다. `client/test/e2e.js`는 빌드한 화면과 실제 저장 서버를 함께 실행해 생성·완료, 세 실패 이유별 기록·재설계·history, 중복·역방향 요청과 저장 불변, 400·409·실제 저장 실패 503·통신 단절, 새로고침·서버 재시작, 데스크톱 1280px·모바일 390px을 검증한다. 브라우저 검증의 실제 실행 결과는 통합 head의 QA 근거로 남기며, fixture 결과를 실제 저장 연결의 증거로 사용하지 않는다. 저장 이력 기반 대시보드와 전체 MVP 흐름은 후속 slice의 검증 대상이다.
 
 ## 화면 흐름과 표현
 
