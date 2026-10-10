@@ -326,7 +326,7 @@ API 응답과 POST 본문은 JSON이다. 정상 응답과 오류 응답 모두 `
 
 대시보드 설계 [#158](https://github.com/puddingdream/restart-quest/pull/158) → 서버 [#159](https://github.com/puddingdream/restart-quest/pull/159) → 화면 [#160](https://github.com/puddingdream/restart-quest/pull/160) 순서로 통합한다. `server/store.js`의 확정 v1 스냅샷을 `server/dashboard.js`가 한 번 투영하고 `server/app.js`가 `GET /api/dashboard`로 반환한다. `client/quest-app.js`는 이 응답을 검증해 `client/index.html`의 다음 행동·수치·루트 이력에 표시한다. `client/test/fixtures/quest-api-v1.json`의 빈·복합·오류 예시는 이 계약과 동일한 필드와 우선순위를 사용한다. 읽기 실패는 저장 0건으로 바꾸지 않는다.
 
-서버·화면 단위 검증과 fixture 기반 브라우저 smoke는 각 계약을 확인한다. 기존 `client/test/e2e.js`는 생성·기록·재설계의 실제 저장 흐름을 검사하지만 대시보드 단언은 아직 없다. 뒤따르는 통합 회귀 작업은 **같은 통합 head**에서 실제 서버·브라우저의 생성→완료와 생성→실패 이유→재설계→대시보드 반영, 400·409·503·통신 오류, 새로고침·재시작, 1280px·390px을 검증한다. 그 실행 결과를 얻기 전에는 이 통합 계약만으로 MVP 완료를 주장하지 않는다.
+서버·화면 단위 검증과 fixture 기반 브라우저 smoke는 각 계약을 확인한다. `client/test/e2e.js`는 생성·기록·재설계의 실제 저장 흐름에 빈 대시보드, 확정 저장 객체별 집계, 기존 history API와 일치하는 루트별 이력, 다음 행동, 화면 표현의 단언을 더한다. 브라우저에서 대시보드 읽기 500을 한 번 주입해 오래된 수치를 숨기고 GET만 재시도하는 흐름을 확인한다. 이는 실제 서버의 집계 실패 재현이 아니라 화면 오류 처리 검증이며 서버의 500 계약은 서버 테스트가 담당한다. 새로고침과 서버 프로세스 재시작 뒤 동일한 대시보드 응답도 대조한다. **같은 통합 head**에서 실제 서버·브라우저의 생성→완료와 생성→실패 이유→재설계→대시보드 반영, 400·409·503·통신 오류, 새로고침·재시작, 1280px·390px 및 README의 깨끗한 설치·빌드·실행·전체 테스트의 최종 실행 결과는 QA가 기록한다. 그 결과를 얻기 전에는 이 통합 계약만으로 MVP 완료를 주장하지 않는다.
 
 ## 화면 흐름과 표현
 
