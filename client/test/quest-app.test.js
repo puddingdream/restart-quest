@@ -62,6 +62,22 @@ function queuedFetch(...responses) {
 
 const body = (body, status = 200) => ({ body, status });
 const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
+const card = (document, index = 0) => document.nodes['quest-list'].children[index];
+function findNode(node, text) {
+  if (node.tagName === 'button' && node.textContent === text) return node;
+  for (const child of node.children) {
+    const found = findNode(child, text);
+    if (found) return found;
+  }
+  return undefined;
+}
+const completed = () => ({ ...fixture.quest, status: 'completed', completedAt: fixture.record.completedAt });
+const failed = (reason) => ({ ...fixture.quest, status: 'failed', failureReason: reason,
+  failedAt: fixture.record.failedAt });
+const child = (reason) => ({ ...fixture.quest, id: fixture.record.childId,
+  createdAt: fixture.record.childCreatedAt, title: fixture.failureReasons[reason].title,
+  estimatedMinutes: fixture.failureReasons[reason].minutes,
+  parentQuestId: fixture.quest.id, rootQuestId: fixture.quest.id });
 
 test('시간 경계와 상태를 숫자 계약으로 검증한다', () => {
   assert.deepEqual(parseInput('5', 'low').value, { availableMinutes: 5, energy: 'low' });
@@ -219,3 +235,200 @@ test('API client는 같은 출처의 상대 경로와 JSON 요청을 사용한�
   assert.equal(calls[0].url, '/api/quests');
   assert.equal(calls[0].options.headers['Content-Type'], 'application/json');
 });
+
+test('완료 요청 중 중복 조작을 막고 확정 응답 뒤 재조회한 상태를 표시한다', async () => {
+  const document = makeDocument();
+  let finish;
+  const calls = [];
+  const fetchRequest = async (url, options) => {
+    calls.push({ url, options });
+    if (calls.length === 1) return Response.json({ quests: [fixture.quest] });
+    if (calls.length === 2) return new Promise((resolve) => { finish = resolve; });
+    return Response.json({ quests: [completed()] });
+  };
+  mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  const pendingCard = card(document);
+  const completion = findNode(pendingCard, '완료 기록').emit('click');
+  assert.equal(findNode(pendingCard, '완료 기록').disabled, true);
+  assert.equal(findNode(pendingCard, '실패 기록').disabled, true);
+  await findNode(pendingCard, '완료 기록').emit('click');
+  assert.equal(calls.length, 2, '진행 중 POST를 중복 전송하지 않는다');
+  finish(Response.json({ quest: completed() }));
+  await completion;
+  assert.equal(calls[1].url, `/api/quests/${fixture.quest.id}/complete`);
+  assert.deepEqual(JSON.parse(calls[1].options.body), {});
+  assert.match(card(document).children[3].textContent, /완료 기록/);
+  assert.equal(findNode(card(document), '완료 기록'), undefined);
+  assert.equal(findNode(card(document), '실패 기록'), undefined);
+});
+
+for (const [reason, expected] of Object.entries(fixture.failureReasons)) {
+  test(`${reason} 기록과 더 작은 대안, 부모·루트 이력을 API 응답으로 표시한다`, async () => {
+    const document = makeDocument();
+    const failQuest = failed(reason);
+    const newChild = child(reason);
+    const { fetchRequest, calls } = queuedFetch(
+      body({ quests: [fixture.quest] }), body({ quest: failQuest }),
+      body({ quests: [failQuest] }), body({ quest: newChild }, 201),
+      body({ quests: [newChild, failQuest] }),
+      body({ rootQuestId: fixture.quest.id, quests: [failQuest, newChild] }),
+    );
+    mountQuestApp(document, fetchRequest);
+    await nextTurn();
+    const initial = card(document);
+    assert.equal(findNode(initial, '실패 기록').disabled, true);
+    initial.reasonSelect.value = reason;
+    await initial.reasonSelect.emit('change');
+    assert.equal(findNode(initial, '실패 기록').disabled, false);
+    await findNode(initial, '실패 기록').emit('click');
+    assert.deepEqual(JSON.parse(calls[1].options.body), { failureReason: reason });
+    assert.match(card(document).children[3].textContent, new RegExp(expected.label));
+    assert.equal(findNode(card(document), '실패 기록'), undefined);
+    await findNode(card(document), '더 작은 행동 제안').emit('click');
+    assert.equal(calls[3].url, `/api/quests/${fixture.quest.id}/redesign`);
+    assert.deepEqual(JSON.parse(calls[3].options.body), {});
+    assert.equal(card(document).quest.parentQuestId, fixture.quest.id);
+    assert.equal(card(document).quest.rootQuestId, fixture.quest.id);
+    assert.ok(card(document).quest.estimatedMinutes < failQuest.estimatedMinutes);
+    assert.match(card(document).children[0].textContent, new RegExp(expected.title));
+    const parent = card(document, 1);
+    assert.equal(findNode(parent, '더 작은 행동 제안'), undefined);
+    assert.equal(parent.historyBox.hidden, false);
+    assert.match(parent.historyBox.children[2].children[1].children[2].textContent, /부모 ID:/);
+    assert.equal(calls[5].url, `/api/quests/${fixture.quest.id}/history`);
+  });
+}
+
+test('400 이유 필드 오류와 409 충돌은 해당 카드에 표시하고 성공 상태를 만들지 않는다', async () => {
+  const document = makeDocument();
+  const { fetchRequest, calls } = queuedFetch(
+    body({ quests: [fixture.quest] }), body(fixture.invalidReason, 400),
+    body(fixture.alreadyResolved, 409), body({ quests: [completed()] }),
+  );
+  mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  card(document).reasonSelect.value = 'time_shortage';
+  await card(document).reasonSelect.emit('change');
+  await findNode(card(document), '실패 기록').emit('click');
+  assert.equal(card(document).reasonError.textContent, fixture.invalidReason.error.fields.failureReason);
+  assert.equal(card(document).reasonSelect.getAttribute('aria-invalid'), 'true');
+  assert.equal(card(document).quest.status, 'pending');
+  await findNode(card(document), '완료 기록').emit('click');
+  assert.equal(calls[2].options.method, 'POST');
+  assert.equal(card(document).quest.status, 'completed', '409 뒤 GET에서 확인한 상태만 표시한다');
+  assert.equal(card(document).actionError.textContent, fixture.alreadyResolved.error.message);
+});
+
+test('503은 허위 성공 없이 재조회 동작을 제공하고 통신 단절은 POST를 재전송하지 않는다', async () => {
+  const document = makeDocument();
+  const { fetchRequest, calls } = queuedFetch(
+    body({ quests: [fixture.quest] }), body(fixture.persistenceError, 503),
+    new Error('network lost'), body({ quests: [completed()] }),
+  );
+  mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  await findNode(card(document), '완료 기록').emit('click');
+  assert.equal(card(document).quest.status, 'pending');
+  assert.equal(card(document).actionError.textContent, fixture.persistenceError.error.message);
+  assert.equal(card(document).refreshButton.hidden, false);
+  await findNode(card(document), '완료 기록').emit('click');
+  assert.deepEqual(calls.map(({ options }) => options?.method ?? 'GET'), ['GET', 'POST', 'POST', 'GET']);
+  assert.equal(card(document).quest.status, 'completed', '확정 결과는 재조회 후에만 표시한다');
+  assert.equal(card(document).actionError.hidden, true);
+});
+
+test('POST 단절 뒤 GET도 실패하면 목록 오류와 재시도를 표시하고 POST를 반복하지 않는다', async () => {
+  const document = makeDocument();
+  const { fetchRequest, calls } = queuedFetch(
+    body({ quests: [fixture.quest] }), new Error('POST disconnected'),
+    new Error('GET disconnected'), body({ quests: [fixture.quest] }),
+  );
+  mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  await findNode(card(document), '완료 기록').emit('click');
+  assert.deepEqual(calls.map(({ options }) => options?.method ?? 'GET'), ['GET', 'POST', 'GET']);
+  assert.equal(document.nodes['quest-list'].children.length, 0);
+  assert.equal(document.nodes['list-error'].hidden, false);
+  assert.match(document.nodes['list-error'].textContent, /요청 결과를 확인하지 못했습니다/);
+  assert.equal(document.nodes['retry-button'].hidden, false);
+  await document.nodes['retry-button'].emit('click');
+  assert.equal(card(document).quest.status, 'pending');
+  assert.equal(calls.length, 4);
+});
+
+test('POST 응답 본문이 끊기면 성공으로 간주하지 않고 GET으로 확정 상태를 확인한다', async () => {
+  const document = makeDocument();
+  const calls = [];
+  const fetchRequest = async (url, options) => {
+    calls.push({ url, options });
+    if (calls.length === 1) return Response.json({ quests: [fixture.quest] });
+    if (calls.length === 2) return { ok: true, status: 200, json: async () => { throw new TypeError('body interrupted'); } };
+    return Response.json({ quests: [completed()] });
+  };
+  mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  await findNode(card(document), '완료 기록').emit('click');
+  assert.deepEqual(calls.map(({ options }) => options?.method ?? 'GET'), ['GET', 'POST', 'GET']);
+  assert.equal(card(document).quest.status, 'completed');
+  assert.equal(card(document).actionError.hidden, true);
+  assert.match(card(document).actionStatus.textContent, /저장된 상태를 다시 확인/);
+});
+
+test('이력 조회 오류는 이력 성공 표시 없이 카드에서 재시도할 수 있다', async () => {
+  const document = makeDocument();
+  const { fetchRequest } = queuedFetch(body({ quests: [failed('time_shortage')] }),
+    body(fixture.persistenceError, 503),
+    body({ rootQuestId: fixture.quest.id, quests: [failed('time_shortage')] }));
+  mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  await findNode(card(document), '이력 보기').emit('click');
+  assert.equal(card(document).historyBox.hidden, true);
+  assert.equal(card(document).actionError.hidden, false);
+  await findNode(card(document), '이력 보기').emit('click');
+  assert.equal(card(document).historyBox.hidden, false);
+  assert.equal(card(document).actionError.hidden, true);
+});
+
+test('1분 실패 기록은 더 작은 행동 요청을 내지 않고 다음 선택을 안내한다', async () => {
+  const document = makeDocument();
+  const oneMinute = { ...failed('unclear_start'), estimatedMinutes: 1 };
+  const { fetchRequest, calls } = queuedFetch(body({ quests: [oneMinute] }));
+  mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  assert.equal(findNode(card(document), '더 작은 행동 제안'), undefined);
+  assert.ok(card(document).children.some((node) => node.textContent.includes('잠시 쉬거나 새 퀘스트')));
+  assert.equal(calls.length, 1);
+});
+
+for (const [name, refreshedQuest] of [
+  ['미확정', fixture.quest],
+  ['서버에서 확정', completed()],
+]) {
+  test(`응답이 멈춘 완료 요청은 재전송 없이 GET으로 ${name} 상태를 확인한다`, async () => {
+    const document = makeDocument();
+    const calls = [];
+    const fetchRequest = (url, options) => {
+      calls.push({ url, method: options.method ?? 'GET' });
+      if (options.method === 'POST') {
+        return new Promise((resolve, reject) => {
+          options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
+        });
+      }
+      return Promise.resolve(Response.json({ quests: calls.length === 1 ? [fixture.quest] : [refreshedQuest] }));
+    };
+    mountQuestApp(document, fetchRequest, 100);
+    await nextTurn();
+    await findNode(card(document), '완료 기록').emit('click');
+    assert.deepEqual(calls.map(({ method }) => method), ['GET', 'POST', 'GET']);
+    assert.equal(card(document).quest.status, refreshedQuest.status);
+    assert.equal(card(document).actionError.hidden, refreshedQuest.status === 'completed');
+    if (refreshedQuest.status === 'pending') {
+      assert.match(card(document).actionError.textContent, /서버 응답이 늦어지고/);
+      assert.equal(findNode(card(document), '완료 기록').disabled, false);
+    } else {
+      assert.match(card(document).actionStatus.textContent, /저장된 상태를 다시 확인/);
+      assert.equal(findNode(card(document), '완료 기록'), undefined);
+    }
+  });
+}
