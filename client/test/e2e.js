@@ -159,6 +159,10 @@ async function startBrowser(profile) {
     const page = new BrowserPage(socket);
     await page.send('Page.enable');
     await page.send('Runtime.enable');
+    // Window dimensions include browser chrome and scrollbars on some platforms.
+    await page.send('Emulation.setDeviceMetricsOverride', {
+      width: 1280, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
     return { chrome, page };
   } catch (error) {
     try { await stopProcess(chrome); }
@@ -265,7 +269,12 @@ function assertSavedSnapshot(text, quests) {
 
 async function assertDashboard(origin, page, dataFile, expectedNext, label) {
   const quests = await getQuests(origin);
-  assertSavedSnapshot(await readFile(dataFile, 'utf8'), quests);
+  if (quests.length === 0) {
+    await assert.rejects(access(dataFile), { code: 'ENOENT' },
+      `${label}: an empty store must not create a saved snapshot`);
+  } else {
+    assertSavedSnapshot(await readFile(dataFile, 'utf8'), quests);
+  }
   const response = await fetch(`${origin}/api/dashboard`);
   assert.equal(response.status, 200, `${label}: dashboard HTTP status`);
   assert.match(response.headers.get('content-type') ?? '', /application\/json/);
