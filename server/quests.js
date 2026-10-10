@@ -52,3 +52,35 @@ export function createQuest(input) {
     rootQuestId: id,
   };
 }
+
+export const failureReasons = new Set(['time_shortage', 'low_energy', 'unclear_start']);
+
+export function createRedesign(parent, root) {
+  const p = parent.estimatedMinutes;
+  const rules = {
+    time_shortage: [Math.max(1, Math.floor(p / 2)), '짧게 시작하기'],
+    low_energy: [Math.max(1, Math.floor(2 * p / 3)), '자료 한 가지 준비하기'],
+    unclear_start: [Math.max(1, Math.floor(p / 3)), '첫 단서 한 줄 적기'],
+  };
+  const [estimatedMinutes, title] = rules[parent.failureReason];
+  const description = parent.failureReason === 'time_shortage'
+    ? `${root.title}를 ${estimatedMinutes}분 동안만 시작하고 멈춘다.`
+    : parent.failureReason === 'low_energy'
+      ? `${root.title}를 시작할 자료나 메모 한 가지를 준비한다.`
+      : `${root.title}의 첫 단서를 한 줄로 적는다.`;
+  return {
+    id: randomUUID(),
+    createdAt: new Date().toISOString(),
+    availableMinutes: parent.availableMinutes,
+    energy: parent.energy,
+    title,
+    description,
+    estimatedMinutes,
+    status: 'pending',
+    failureReason: null,
+    completedAt: null,
+    failedAt: null,
+    parentQuestId: parent.id,
+    rootQuestId: parent.rootQuestId,
+  };
+}

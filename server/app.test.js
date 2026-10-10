@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
@@ -26,13 +27,17 @@ async function listen(t, options) {
   };
 }
 
-async function request(base, method, body, headers = {}) {
-  const response = await fetch(`${base}/api/quests`, {
+async function request(base, method, body, headers = {}, path = '/api/quests') {
+  const response = await fetch(`${base}${path}`, {
     method,
     headers: body === undefined ? headers : { 'Content-Type': 'application/json', ...headers },
     body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
   });
   return { status: response.status, type: response.headers.get('content-type'), data: await response.json() };
+}
+
+function detail(id, action) {
+  return `/api/quests/${id}/${action}`;
 }
 
 const expectedKeys = [
@@ -225,4 +230,212 @@ test('기본 정적 경로는 저장소 실행 디렉터리의 client/dist다', 
     assert.equal(await response.text(), expected);
   }
   assert.deepEqual((await request(base, 'GET')).data, { quests: [] });
+});
+
+test('완료·실패 확정, 이유별 축소와 루트부터 최신 자손까지 이력을 파일과 재시작에서 복원한다', async (t) => {
+  const options = await fixture(t);
+  const first = await listen(t, options);
+  const completeRoot = (await request(first.base, 'POST', { availableMinutes: 20, energy: 'medium' })).data.quest;
+  const completed = await request(first.base, 'POST', {}, {}, detail(completeRoot.id, 'complete'));
+  assert.equal(completed.status, 200);
+  assert.equal(completed.data.quest.status, 'completed');
+  assert.ok(completed.data.quest.completedAt);
+  assert.equal(completed.data.quest.failedAt, null);
+  assert.equal(completed.data.quest.failureReason, null);
+
+  const minutes = { time_shortage: 10, low_energy: 13, unclear_start: 6 };
+  const titles = { time_shortage: '짧게 시작하기', low_energy: '자료 한 가지 준비하기', unclear_start: '첫 단서 한 줄 적기' };
+  const records = [completed.data.quest];
+  for (const reason of Object.keys(minutes)) {
+    const root = (await request(first.base, 'POST', { availableMinutes: 20, energy: 'medium' })).data.quest;
+    const failed = await request(first.base, 'POST', { failureReason: reason }, {}, detail(root.id, 'fail'));
+    assert.equal(failed.status, 200);
+    assert.equal(failed.data.quest.status, 'failed');
+    assert.equal(failed.data.quest.failureReason, reason);
+    assert.ok(failed.data.quest.failedAt);
+    assert.equal(failed.data.quest.completedAt, null);
+    const failedFile = await readFile(options.dataFile, 'utf8');
+    for (const action of ['complete', 'fail']) {
+      const duplicate = await request(first.base, 'POST', action === 'fail' ? { failureReason: reason } : {}, {}, detail(root.id, action));
+      assert.equal(duplicate.status, 409);
+      assert.equal(duplicate.data.error.code, 'QUEST_ALREADY_RESOLVED');
+    }
+    assert.equal(await readFile(options.dataFile, 'utf8'), failedFile);
+    const redesign = await request(first.base, 'POST', {}, {}, detail(root.id, 'redesign'));
+    assert.equal(redesign.status, 201);
+    const child = redesign.data.quest;
+    assert.deepEqual(Object.keys(child).sort(), expectedKeys);
+    assert.equal(child.estimatedMinutes, minutes[reason]);
+    assert.equal(child.title, titles[reason]);
+    const descriptions = {
+      time_shortage: `${root.title}를 10분 동안만 시작하고 멈춘다.`,
+      low_energy: `${root.title}를 시작할 자료나 메모 한 가지를 준비한다.`,
+      unclear_start: `${root.title}의 첫 단서를 한 줄로 적는다.`,
+    };
+    assert.equal(child.description, descriptions[reason]);
+    assert.equal(child.parentQuestId, root.id);
+    assert.equal(child.rootQuestId, root.id);
+    assert.equal(child.availableMinutes, root.availableMinutes);
+    assert.equal(child.energy, root.energy);
+    assert.equal(child.status, 'pending');
+    const history = await request(first.base, 'GET', undefined, {}, detail(child.id, 'history'));
+    assert.equal(history.status, 200);
+    assert.deepEqual(history.data, { rootQuestId: root.id, quests: [failed.data.quest, child] });
+    records.push(failed.data.quest, child);
+  }
+  const file = JSON.parse(await readFile(options.dataFile, 'utf8'));
+  assert.equal(file.schemaVersion, 1);
+  assert.deepEqual(new Set(file.quests.map((quest) => quest.id)), new Set(records.map((quest) => quest.id)));
+  for (const quest of records) assert.deepEqual(file.quests.find((item) => item.id === quest.id), quest);
+  await new Promise((resolveClose) => first.server.close(resolveClose));
+  const second = await listen(t, options);
+  for (const quest of records) {
+    const history = await request(second.base, 'GET', undefined, {}, detail(quest.id, 'history'));
+    assert.equal(history.status, 200);
+    assert.equal(history.data.rootQuestId, quest.rootQuestId);
+    assert.deepEqual(history.data.quests, records.filter((item) => item.rootQuestId === quest.rootQuestId));
+  }
+  assert.equal((await request(second.base, 'GET')).data.quests.length, records.length);
+});
+
+test('잘못된 본문·ID, 중복·역방향 전이는 메모리와 파일을 바꾸지 않는다', async (t) => {
+  const options = await fixture(t);
+  const { base } = await listen(t, options);
+  const root = (await request(base, 'POST', { availableMinutes: 5, energy: 'low' })).data.quest;
+  const path = (action, id = root.id) => detail(id, action);
+  const invalid = [
+    ['fail', {}, 'INVALID_INPUT', 'failureReason'],
+    ['fail', { failureReason: null }, 'INVALID_INPUT', 'failureReason'],
+    ['fail', { failureReason: 'other' }, 'INVALID_INPUT', 'failureReason'],
+    ['fail', { failureReason: 'low_energy', extra: true }, 'INVALID_INPUT', 'extra'],
+    ['complete', { extra: true }, 'INVALID_INPUT', 'extra'],
+    ['redesign', { extra: true }, 'INVALID_INPUT', 'extra'],
+  ];
+  for (const [action, body, code, field] of invalid) {
+    const result = await request(base, 'POST', body, {}, path(action));
+    assert.equal(result.status, 400);
+    assert.equal(result.data.error.code, code);
+    assert.ok(result.data.error.fields[field]);
+  }
+  const invalidId = await request(base, 'POST', {}, {}, path('complete', 'bad'));
+  assert.equal(invalidId.status, 400);
+  assert.ok(invalidId.data.error.fields.id);
+  const missingId = '11111111-1111-4111-8111-111111111111';
+  assert.equal((await request(base, 'POST', {}, {}, path('complete', missingId))).status, 404);
+  assert.equal((await request(base, 'GET', undefined, {}, path('history', missingId))).status, 404);
+  assert.equal((await request(base, 'POST', {}, {}, path('redesign'))).data.error.code, 'QUEST_NOT_FAILED');
+  assert.equal((await request(base, 'POST', '[]', {}, path('complete'))).data.error.code, 'INVALID_JSON');
+  assert.equal((await request(base, 'POST', '{}', { 'Content-Type': 'text/plain' }, path('complete'))).status, 415);
+  assert.equal((await request(base, 'POST', { padding: 'x'.repeat(17000) }, {}, path('complete'))).status, 413);
+  assert.deepEqual((await request(base, 'GET')).data.quests, [root]);
+  const before = await readFile(options.dataFile, 'utf8');
+  const completed = await request(base, 'POST', {}, {}, path('complete'));
+  assert.equal(completed.status, 200);
+  const after = await readFile(options.dataFile, 'utf8');
+  for (const action of ['complete', 'fail']) {
+    const result = await request(base, 'POST', action === 'fail' ? { failureReason: 'time_shortage' } : {}, {}, path(action));
+    assert.equal(result.status, 409);
+    assert.equal(result.data.error.code, 'QUEST_ALREADY_RESOLVED');
+  }
+  assert.equal((await request(base, 'POST', {}, {}, path('redesign'))).data.error.code, 'QUEST_NOT_FAILED');
+  assert.notEqual(before, after);
+  assert.equal(await readFile(options.dataFile, 'utf8'), after);
+  assert.deepEqual((await request(base, 'GET')).data.quests, [completed.data.quest]);
+});
+
+test('동시 전이와 재설계는 한 건만 확정하고 1분 경계에서도 이력을 유지한다', async (t) => {
+  const options = await fixture(t);
+  const { base } = await listen(t, options);
+  const root = (await request(base, 'POST', { availableMinutes: 5, energy: 'low' })).data.quest;
+  let failedRootId = root.id;
+  const transitions = await Promise.all(Array.from({ length: 12 }, (_, index) =>
+    request(base, 'POST', index % 2 ? { failureReason: 'unclear_start' } : {}, {}, detail(root.id, index % 2 ? 'fail' : 'complete'))));
+  assert.equal(transitions.filter((result) => result.status === 200).length, 1);
+  assert.equal(transitions.filter((result) => result.data.error?.code === 'QUEST_ALREADY_RESOLVED').length, 11);
+  const resolved = (await request(base, 'GET')).data.quests[0];
+  if (resolved.status === 'completed') {
+    const separate = (await request(base, 'POST', { availableMinutes: 5, energy: 'low' })).data.quest;
+    assert.equal((await request(base, 'POST', { failureReason: 'unclear_start' }, {}, detail(separate.id, 'fail'))).status, 200);
+    failedRootId = separate.id;
+  }
+  const redesigns = await Promise.all(Array.from({ length: 12 }, () =>
+    request(base, 'POST', {}, {}, detail(failedRootId, 'redesign'))));
+  assert.equal(redesigns.filter((result) => result.status === 201).length, 1);
+  assert.equal(redesigns.filter((result) => result.data.error?.code === 'QUEST_ALREADY_REDESIGNED').length, 11);
+  let child = redesigns.find((result) => result.status === 201).data.quest;
+  while (child.estimatedMinutes > 1) {
+    assert.equal((await request(base, 'POST', { failureReason: 'unclear_start' }, {}, detail(child.id, 'fail'))).status, 200);
+    child = (await request(base, 'POST', {}, {}, detail(child.id, 'redesign'))).data.quest;
+  }
+  const failedOne = await request(base, 'POST', { failureReason: 'time_shortage' }, {}, detail(child.id, 'fail'));
+  assert.equal(failedOne.status, 200);
+  const before = await readFile(options.dataFile, 'utf8');
+  const limit = await request(base, 'POST', {}, {}, detail(child.id, 'redesign'));
+  assert.equal(limit.status, 409);
+  assert.equal(limit.data.error.code, 'REDESIGN_LIMIT_REACHED');
+  assert.equal(await readFile(options.dataFile, 'utf8'), before);
+  const history = await request(base, 'GET', undefined, {}, detail(child.id, 'history'));
+  assert.equal(history.data.quests.at(-1).id, child.id);
+  assert.equal(history.data.rootQuestId, failedRootId);
+  const rootHistory = await request(base, 'GET', undefined, {}, detail(failedRootId, 'history'));
+  assert.deepEqual(rootHistory.data, history.data);
+});
+
+test('전이·재설계 파일 교체 실패는 확정 스냅샷을 유지하고 복구 후 재시도한다', async (t) => {
+  const options = await fixture(t);
+  const { base } = await listen(t, options);
+  const root = (await request(base, 'POST', { availableMinutes: 20, energy: 'medium' })).data.quest;
+  const backup = `${options.dataFile}.backup`;
+  async function obstruct() {
+    await rename(options.dataFile, backup);
+    await mkdir(options.dataFile);
+  }
+  async function restore() {
+    await rmdir(options.dataFile);
+    await rename(backup, options.dataFile);
+  }
+  await obstruct();
+  const failedWrite = await request(base, 'POST', { failureReason: 'time_shortage' }, {}, detail(root.id, 'fail'));
+  assert.equal(failedWrite.status, 503);
+  assert.equal(failedWrite.data.error.code, 'PERSISTENCE_ERROR');
+  assert.deepEqual((await request(base, 'GET')).data.quests, [root]);
+  await restore();
+  assert.deepEqual(JSON.parse(await readFile(options.dataFile, 'utf8')).quests, [root]);
+  const failed = (await request(base, 'POST', { failureReason: 'time_shortage' }, {}, detail(root.id, 'fail'))).data.quest;
+  await obstruct();
+  const redesignWrite = await request(base, 'POST', {}, {}, detail(root.id, 'redesign'));
+  assert.equal(redesignWrite.status, 503);
+  assert.equal(redesignWrite.data.error.code, 'PERSISTENCE_ERROR');
+  assert.deepEqual((await request(base, 'GET')).data.quests, [failed]);
+  await restore();
+  assert.deepEqual(JSON.parse(await readFile(options.dataFile, 'utf8')).quests, [failed]);
+  assert.equal((await request(base, 'POST', {}, {}, detail(root.id, 'redesign'))).status, 201);
+});
+
+test('손상된 상태·부모·루트·중복 자식 스냅샷은 시작 시 원문을 유지하며 거부한다', async (t) => {
+  const options = await fixture(t);
+  const first = await listen(t, options);
+  const root = (await request(first.base, 'POST', { availableMinutes: 20, energy: 'medium' })).data.quest;
+  assert.equal((await request(first.base, 'POST', { failureReason: 'time_shortage' }, {}, detail(root.id, 'fail'))).status, 200);
+  assert.equal((await request(first.base, 'POST', {}, {}, detail(root.id, 'redesign'))).status, 201);
+  await new Promise((resolveClose) => first.server.close(resolveClose));
+  const original = JSON.parse(await readFile(options.dataFile, 'utf8'));
+  const mutations = [
+    (quests) => { quests[0].failureReason = null; },
+    (quests) => { quests[1].parentQuestId = randomUUID(); },
+    (quests) => { quests[1].rootQuestId = quests[1].id; },
+    (quests) => { quests[1].estimatedMinutes = quests[0].estimatedMinutes; },
+    (quests) => { quests.push({ ...quests[1], id: randomUUID() }); },
+  ];
+  for (const mutate of mutations) {
+    const snapshot = structuredClone(original);
+    mutate(snapshot.quests);
+    const content = JSON.stringify(snapshot);
+    await writeFile(options.dataFile, content);
+    await assert.rejects(createQuestServer(options));
+    assert.equal(await readFile(options.dataFile, 'utf8'), content);
+  }
+  await writeFile(options.dataFile, JSON.stringify(original));
+  const second = await listen(t, options);
+  assert.equal((await request(second.base, 'GET')).data.quests.length, 2);
 });
