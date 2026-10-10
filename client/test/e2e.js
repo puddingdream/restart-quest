@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rename, rmdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,8 +41,12 @@ async function stopProcess(child) {
 }
 
 async function startServer(dataFile) {
-  const env = { ...process.env, PORT: '0', QUEST_DATA_FILE: dataFile };
-  delete env.QUEST_PUBLIC_DIR;
+  const env = {
+    ...process.env,
+    PORT: '0',
+    QUEST_DATA_FILE: dataFile,
+    QUEST_PUBLIC_DIR: join(clientDir, 'dist'),
+  };
   const server = spawn(process.execPath, [serverEntry], {
     cwd: repoDir,
     env,
@@ -160,9 +164,92 @@ async function screenshot(page, name) {
   await writeFile(join(directory, name), Buffer.from(result.data, 'base64'));
 }
 
+const cardExpression = (id) =>
+  `document.querySelector('#quest-list li[data-quest-id=' + ${JSON.stringify(JSON.stringify(id))} + ']')`;
+
+async function clickAction(page, id, label) {
+  await page.evaluate(`(() => {
+    const card = ${cardExpression(id)};
+    const button = [...(card?.querySelectorAll('button') ?? [])]
+      .find((candidate) => candidate.textContent.trim() === ${JSON.stringify(label)});
+    if (!button || button.disabled) throw new Error('Action unavailable: ${label}');
+    button.click();
+    return true;
+  })()`);
+}
+
+async function selectReason(page, id, reason) {
+  assert.equal(await page.evaluate(`(() => {
+    const select = ${cardExpression(id)}?.querySelector('select');
+    if (!select) throw new Error('Failure reason select unavailable');
+    select.value = ${JSON.stringify(reason)};
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return select.value;
+  })()`), reason);
+}
+
+async function createInBrowser(page, minutes, energy, knownIds) {
+  await page.evaluate(`(() => {
+    document.getElementById('available-minutes').value = ${JSON.stringify(String(minutes))};
+    document.getElementById('energy').value = ${JSON.stringify(energy)};
+    document.getElementById('quest-form').requestSubmit();
+  })()`);
+  return waitFor(() => page.evaluate(`(() => {
+    if (document.getElementById('result-section').hidden) return null;
+    return [...document.querySelectorAll('#quest-list li')]
+      .map((card) => card.dataset.questId)
+      .find((id) => !${JSON.stringify(knownIds)}.includes(id)) ?? null;
+  })()`), `browser quest creation (${energy}, ${minutes} minutes)`);
+}
+
+async function getQuests(origin) {
+  const response = await fetch(`${origin}/api/quests`);
+  assert.equal(response.status, 200);
+  return (await response.json()).quests;
+}
+
+async function getHistory(origin, id) {
+  const response = await fetch(`${origin}/api/quests/${id}/history`);
+  assert.equal(response.status, 200);
+  return response.json();
+}
+
+async function postJson(origin, path, body) {
+  const response = await fetch(`${origin}${path}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return { status: response.status, body: await response.json() };
+}
+
+async function assertRejectedUnchanged(origin, dataFile, path, input, status, code, field) {
+  const beforeFile = await readFile(dataFile, 'utf8');
+  const beforeList = await getQuests(origin);
+  const result = await postJson(origin, path, input);
+  assert.equal(result.status, status, `${path} HTTP status`);
+  assert.equal(result.body.error?.code, code, `${path} error code`);
+  assert.equal(typeof result.body.error?.message, 'string');
+  assert.ok(result.body.error?.fields && typeof result.body.error.fields === 'object');
+  if (field) assert.ok(result.body.error.fields[field], `${path} error field ${field}`);
+  assert.deepEqual(await getQuests(origin), beforeList, `${path} changed the in-memory list`);
+  assert.equal(await readFile(dataFile, 'utf8'), beforeFile, `${path} changed the saved snapshot`);
+}
+
+function assertSavedSnapshot(text, quests) {
+  const snapshot = JSON.parse(text);
+  assert.equal(snapshot.schemaVersion, 1);
+  assert.deepEqual(snapshot.quests.map((quest) => quest.id).sort(), quests.map((quest) => quest.id).sort());
+  for (const quest of quests) {
+    assert.deepEqual(snapshot.quests.find((entry) => entry.id === quest.id), quest);
+  }
+}
+
 await access(serverEntry).catch(() => {
   throw new Error('Integrated server/index.js is required. Run test:e2e after server and client are combined.');
 });
+// A clean verification checkout has no dist; build the assets used by this server.
+await import('../scripts/build.js');
+await access(join(clientDir, 'dist', 'index.html'));
 
 const dataDir = await mkdtemp(join(tmpdir(), 'restart-quest-e2e-data-'));
 const profile = await mkdtemp(join(tmpdir(), 'restart-quest-e2e-browser-'));
@@ -180,7 +267,7 @@ try {
   assert.match(await documentResponse.text(), /src="\/app\.js"/);
   for (const [path, contentType] of [['/app.js', 'javascript'], ['/styles.css', 'css']]) {
     const assetResponse = await fetch(`${running.origin}${path}`);
-    assert.equal(assetResponse.status, 200, `${path} is served from the default public directory`);
+    assert.equal(assetResponse.status, 200, `${path} is served from the built public directory`);
     assert.match(assetResponse.headers.get('content-type') ?? '', new RegExp(contentType));
     assert.ok((await assetResponse.text()).length > 0, `${path} is not empty`);
   }
@@ -237,7 +324,201 @@ try {
   assert.ok(createdOnMobile);
   assert.ok(createdOnMobile.estimatedMinutes <= 5);
   await screenshot(browser.page, 'e2e-mobile.png');
-  console.log(`PASS real server e2e: POST/GET, reload, invalid input, process restart, desktop 1280px, mobile 390px; quests ${id}, ${mobileId}`);
+
+  await browser.page.send('Emulation.setDeviceMetricsOverride', {
+    width: 1280, height: 900, deviceScaleFactor: 1, mobile: false,
+  });
+  assert.equal(await browser.page.evaluate('innerWidth'), 1280);
+  await assertRejectedUnchanged(running.origin, dataFile, '/api/quests',
+    { availableMinutes: 4, energy: 'medium' }, 400, 'INVALID_INPUT', 'availableMinutes');
+  await assertRejectedUnchanged(running.origin, dataFile, `/api/quests/${id}/fail`,
+    { failureReason: 'unknown' }, 400, 'INVALID_INPUT', 'failureReason');
+  await clickAction(browser.page, id, '완료 기록');
+  await waitFor(() => browser.page.evaluate(`${cardExpression(id)}?.querySelector('.quest-state')?.textContent.includes('완료 기록 ·')`), 'completed quest in desktop browser');
+  const completed = (await getQuests(running.origin)).find((quest) => quest.id === id);
+  assert.equal(completed.status, 'completed');
+  assert.ok(completed.completedAt);
+  assert.equal(completed.failureReason, null);
+  assert.equal(completed.failedAt, null);
+  assert.equal(await browser.page.evaluate(`${cardExpression(id)}?.querySelectorAll('button').length`), 2,
+    'completed quest must not expose another state action');
+  const completedHistory = await getHistory(running.origin, id);
+  assert.equal(completedHistory.rootQuestId, id);
+  assert.deepEqual(completedHistory.quests, [completed]);
+  await clickAction(browser.page, id, '이력 보기');
+  await waitFor(() => browser.page.evaluate(`${cardExpression(id)}?.querySelector('.quest-history:not([hidden])')?.textContent.includes(${JSON.stringify(id)})`), 'completed history in browser');
+  for (const [action, body] of [['complete', {}], ['fail', { failureReason: 'time_shortage' }]]) {
+    await assertRejectedUnchanged(running.origin, dataFile, `/api/quests/${id}/${action}`,
+      body, 409, 'QUEST_ALREADY_RESOLVED');
+  }
+  await assertRejectedUnchanged(running.origin, dataFile, `/api/quests/${id}/redesign`,
+    {}, 409, 'QUEST_NOT_FAILED');
+
+  const reasons = {
+    time_shortage: { label: '시간이 부족했어요', minutes: 10, title: '짧게 시작하기' },
+    low_energy: { label: '지금은 에너지가 부족했어요', minutes: 13, title: '자료 한 가지 준비하기' },
+    unclear_start: { label: '어디서 시작할지 막막했어요', minutes: 6, title: '첫 단서 한 줄 적기' },
+  };
+  const knownIds = [id, mobileId];
+  const chains = {};
+  for (const [reason, expected] of Object.entries(reasons)) {
+    const parentId = await createInBrowser(browser.page, 20, 'medium', knownIds);
+    knownIds.push(parentId);
+    const pending = (await getQuests(running.origin)).find((quest) => quest.id === parentId);
+    assert.equal(pending.status, 'pending');
+    assert.equal(pending.estimatedMinutes, 20);
+    await assertRejectedUnchanged(running.origin, dataFile, `/api/quests/${parentId}/fail`,
+      { failureReason: 'other' }, 400, 'INVALID_INPUT', 'failureReason');
+    await selectReason(browser.page, parentId, reason);
+    await clickAction(browser.page, parentId, '실패 기록');
+    await waitFor(() => browser.page.evaluate(`${cardExpression(parentId)}?.querySelector('.quest-state')?.textContent.includes(${JSON.stringify(expected.label)})`), `${reason} recorded in browser`);
+    const failed = (await getQuests(running.origin)).find((quest) => quest.id === parentId);
+    assert.equal(failed.status, 'failed');
+    assert.equal(failed.failureReason, reason);
+    assert.ok(failed.failedAt);
+    assert.equal(failed.completedAt, null);
+    await assertRejectedUnchanged(running.origin, dataFile, `/api/quests/${parentId}/fail`,
+      { failureReason: reason }, 409, 'QUEST_ALREADY_RESOLVED');
+    await assertRejectedUnchanged(running.origin, dataFile, `/api/quests/${parentId}/complete`,
+      {}, 409, 'QUEST_ALREADY_RESOLVED');
+    await clickAction(browser.page, parentId, '더 작은 행동 제안');
+    await waitFor(() => browser.page.evaluate(`${cardExpression(parentId)}?.querySelector('.quest-history:not([hidden])')?.textContent.includes('루트 ID: ${parentId}')`), `${reason} redesign history in browser`);
+    const child = (await getQuests(running.origin)).find((quest) => quest.parentQuestId === parentId);
+    assert.ok(child, `${reason} child saved`);
+    knownIds.push(child.id);
+    assert.equal(child.title, expected.title);
+    assert.equal(child.estimatedMinutes, expected.minutes);
+    assert.ok(child.estimatedMinutes < failed.estimatedMinutes);
+    assert.equal(child.parentQuestId, parentId);
+    assert.equal(child.rootQuestId, parentId);
+    assert.equal(child.status, 'pending');
+    assert.deepEqual((await getQuests(running.origin)).find((quest) => quest.id === parentId), failed,
+      'redesign must preserve the failed parent');
+    const history = await getHistory(running.origin, child.id);
+    assert.equal(history.rootQuestId, parentId);
+    assert.deepEqual(history.quests, [failed, child]);
+    assert.deepEqual(await getHistory(running.origin, parentId), history);
+    assert.equal(await browser.page.evaluate(`${cardExpression(parentId)}?.querySelector('.quest-history')?.textContent.includes(${JSON.stringify(child.id)})`), true);
+    assert.equal(await browser.page.evaluate(`${cardExpression(child.id)}?.textContent.includes(${JSON.stringify(parentId)})`), true);
+    await assertRejectedUnchanged(running.origin, dataFile, `/api/quests/${parentId}/redesign`,
+      {}, 409, 'QUEST_ALREADY_REDESIGNED');
+    await assertRejectedUnchanged(running.origin, dataFile, `/api/quests/${child.id}/redesign`,
+      {}, 409, 'QUEST_NOT_FAILED');
+    chains[reason] = { parentId, childId: child.id };
+  }
+  await screenshot(browser.page, 'e2e-desktop-record.png');
+
+  // A stale card receives a real 409 after another HTTP client confirms the quest.
+  const conflictId = chains.unclear_start.childId;
+  const externalCompletion = await postJson(running.origin, `/api/quests/${conflictId}/complete`, {});
+  assert.equal(externalCompletion.status, 200);
+  const beforeConflict = await getQuests(running.origin);
+  const beforeConflictFile = await readFile(dataFile, 'utf8');
+  await clickAction(browser.page, conflictId, '완료 기록');
+  await waitFor(() => browser.page.evaluate(`${cardExpression(conflictId)}?.querySelector('.notice-error:not([hidden])')?.textContent.includes('이미 기록된 퀘스트')`), 'real 409 shown on stale browser card');
+  assert.equal(await browser.page.evaluate(`${cardExpression(conflictId)}?.querySelector('.quest-state')?.textContent.includes('완료 기록 ·')`), true);
+  assert.deepEqual(await getQuests(running.origin), beforeConflict);
+  assert.equal(await readFile(dataFile, 'utf8'), beforeConflictFile);
+
+  // Force a real persistence failure using only the isolated E2E data path.
+  const persistenceQuestId = chains.time_shortage.childId;
+  const beforePersistenceFailure = await getQuests(running.origin);
+  const beforePersistenceFile = await readFile(dataFile, 'utf8');
+  const backupFile = join(dataDir, 'quests-backup.json');
+  await rename(dataFile, backupFile);
+  try {
+    await mkdir(dataFile);
+    await clickAction(browser.page, persistenceQuestId, '완료 기록');
+    await waitFor(() => browser.page.evaluate(`${cardExpression(persistenceQuestId)}?.querySelector('.notice-error:not([hidden])')?.textContent.includes('저장에 실패')`), 'real 503 in browser');
+    assert.equal(await browser.page.evaluate(`${cardExpression(persistenceQuestId)}?.querySelector('.quest-state')?.textContent`), '진행할 수 있는 행동');
+    assert.deepEqual(await getQuests(running.origin), beforePersistenceFailure);
+    assert.equal(await readFile(backupFile, 'utf8'), beforePersistenceFile);
+  } finally {
+    await rmdir(dataFile).catch((error) => { if (error.code !== 'ENOENT') throw error; });
+    await rename(backupFile, dataFile);
+  }
+  assertSavedSnapshot(await readFile(dataFile, 'utf8'), await getQuests(running.origin));
+  await screenshot(browser.page, 'e2e-desktop-persistence-error.png');
+
+  await browser.page.send('Emulation.setDeviceMetricsOverride', {
+    width: 390, height: 844, deviceScaleFactor: 1, mobile: true,
+  });
+  const mobileControls = await browser.page.evaluate(`(() => {
+    const card = ${cardExpression(mobileId)};
+    const select = card.querySelector('select');
+    const buttons = [...card.querySelectorAll('button:not([hidden])')];
+    const rects = [select, ...buttons].map((node) => node.getBoundingClientRect());
+    return {
+      width: innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      controlWidths: rects.map((rect) => rect.width),
+      withinViewport: rects.every((rect) => rect.left >= 0 && rect.right <= innerWidth + 1),
+      failDisabledBeforeReason: buttons.find((button) => button.textContent.trim() === '실패 기록')?.disabled,
+    };
+  })()`);
+  assert.equal(mobileControls.width, 390);
+  assert.ok(mobileControls.scrollWidth <= 391 && mobileControls.withinViewport,
+    `mobile controls overflow: ${JSON.stringify(mobileControls)}`);
+  assert.ok(mobileControls.controlWidths.every((width) => width > 200),
+    `mobile controls too narrow: ${JSON.stringify(mobileControls)}`);
+  assert.equal(mobileControls.failDisabledBeforeReason, true);
+  await selectReason(browser.page, mobileId, 'time_shortage');
+  await clickAction(browser.page, mobileId, '실패 기록');
+  await waitFor(() => browser.page.evaluate(`${cardExpression(mobileId)}?.querySelector('.quest-state')?.textContent.includes('시간이 부족했어요')`), 'mobile failure record');
+  await clickAction(browser.page, mobileId, '더 작은 행동 제안');
+  await waitFor(() => browser.page.evaluate(`${cardExpression(mobileId)}?.querySelector('.quest-history:not([hidden])')?.textContent.includes('루트 ID: ${mobileId}')`), 'mobile redesign history');
+  const mobileChild = (await getQuests(running.origin)).find((quest) => quest.parentQuestId === mobileId);
+  assert.equal(mobileChild.estimatedMinutes, 2);
+  assert.equal(mobileChild.rootQuestId, mobileId);
+  assert.equal(await browser.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'), true);
+  assert.equal(await browser.page.evaluate(`${cardExpression(mobileChild.id)}?.textContent.includes(${JSON.stringify(mobileId)})`), true);
+  await screenshot(browser.page, 'e2e-mobile-record.png');
+
+  // A descendant can be reduced to one minute; another redesign must be rejected.
+  await selectReason(browser.page, mobileChild.id, 'unclear_start');
+  await clickAction(browser.page, mobileChild.id, '실패 기록');
+  await waitFor(() => browser.page.evaluate(`${cardExpression(mobileChild.id)}?.querySelector('.quest-state')?.textContent.includes('어디서 시작할지 막막했어요')`), 'mobile child failure record');
+  await clickAction(browser.page, mobileChild.id, '더 작은 행동 제안');
+  await waitFor(() => browser.page.evaluate(`${cardExpression(mobileChild.id)}?.querySelector('.quest-history:not([hidden])')?.textContent.includes('루트 ID: ${mobileId}')`), 'mobile descendant history');
+  const lastChild = (await getQuests(running.origin)).find((quest) => quest.parentQuestId === mobileChild.id);
+  assert.equal(lastChild.estimatedMinutes, 1);
+  assert.equal(lastChild.rootQuestId, mobileId);
+  assert.deepEqual((await getHistory(running.origin, lastChild.id)).quests.map((quest) => quest.id),
+    [mobileId, mobileChild.id, lastChild.id]);
+  await selectReason(browser.page, lastChild.id, 'low_energy');
+  await clickAction(browser.page, lastChild.id, '실패 기록');
+  await waitFor(() => browser.page.evaluate(`${cardExpression(lastChild.id)}?.textContent.includes('지금은 1분짜리 행동입니다')`), 'one-minute boundary in browser');
+  assert.equal(await browser.page.evaluate(`${cardExpression(lastChild.id)}?.textContent.includes('더 작은 행동 제안')`), false);
+  await assertRejectedUnchanged(running.origin, dataFile, `/api/quests/${lastChild.id}/redesign`,
+    {}, 409, 'REDESIGN_LIMIT_REACHED');
+  assertSavedSnapshot(await readFile(dataFile, 'utf8'), await getQuests(running.origin));
+
+  // Reload and process restart must both recover the same confirmed records.
+  const beforeReload = await getQuests(running.origin);
+  await browser.page.evaluate('window.__questReloadMarker = true');
+  await browser.page.send('Page.reload', { ignoreCache: true });
+  await waitFor(() => browser.page.evaluate(`window.__questReloadMarker !== true && ${cardExpression(lastChild.id)}?.textContent.includes('지금은 1분짜리 행동입니다')`), 'confirmed records after reload');
+  assert.equal(await browser.page.evaluate(`${cardExpression(id)}?.querySelector('.quest-state')?.textContent.includes('완료 기록 ·')`), true);
+  await clickAction(browser.page, mobileChild.id, '이력 보기');
+  await waitFor(() => browser.page.evaluate(`${cardExpression(mobileChild.id)}?.querySelector('.quest-history:not([hidden])')?.textContent.includes(${JSON.stringify(lastChild.id)})`), 'descendant history after reload');
+
+  await stopProcess(running.server);
+  running = undefined;
+  await clickAction(browser.page, chains.low_energy.childId, '완료 기록');
+  await waitFor(() => browser.page.evaluate("!document.getElementById('list-error').hidden && !document.getElementById('retry-button').hidden"), 'disconnected API error in browser');
+  assert.equal(await browser.page.evaluate("document.getElementById('list-error').textContent.includes('요청 결과를 확인하지 못했습니다')"), true);
+  assert.equal(await browser.page.evaluate("document.querySelectorAll('#quest-list li').length"), 0,
+    'disconnected list must not look like a confirmed success');
+  running = await startServer(dataFile);
+  assert.deepEqual(await getQuests(running.origin), beforeReload);
+  assertSavedSnapshot(await readFile(dataFile, 'utf8'), beforeReload);
+  assert.deepEqual((await getHistory(running.origin, lastChild.id)).quests.map((quest) => quest.id),
+    [mobileId, mobileChild.id, lastChild.id]);
+  await browser.page.navigate(`${running.origin}/`);
+  await waitFor(() => browser.page.evaluate(`${cardExpression(lastChild.id)}?.textContent.includes('지금은 1분짜리 행동입니다')`), 'stored records after process restart');
+  assert.equal(await browser.page.evaluate(`${cardExpression(chains.low_energy.childId)}?.querySelector('.quest-state')?.textContent`), '진행할 수 있는 행동');
+  assert.equal(await browser.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'), true);
+  console.log(`PASS real server e2e: create, complete, three failure reasons and redesign histories, immutable 400/409 and real 503, disconnect, reload, process restart, desktop 1280px and mobile 390px; ${beforeReload.length} saved quests`);
 } catch (error) {
   originalError = error;
   throw error;
