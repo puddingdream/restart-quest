@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { open, readFile, mkdir, rename, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createRedesign, failureReasons } from './quests.js';
+import { projectDashboard } from './dashboard.js';
 
 const uuidPattern = /^[\da-f]{8}-[\da-f]{4}-[1-8][\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i;
 const timestampPattern = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
@@ -93,6 +94,10 @@ export async function createQuestStore(filePath) {
     return operation;
   }
   return {
+    dashboard() {
+      if (!validSnapshot(snapshot)) throw new Error('Invalid dashboard snapshot');
+      return projectDashboard(snapshot);
+    },
     list() {
       return [...snapshot.quests].sort((a, b) =>
         b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
