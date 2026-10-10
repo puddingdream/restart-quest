@@ -84,6 +84,16 @@ class BrowserPage {
     this.pending = new Map();
     socket.addEventListener('message', (event) => {
       const message = JSON.parse(event.data);
+      if (message.method === 'Fetch.requestPaused') {
+        const handle = this.handlePausedRequest
+          ? this.handlePausedRequest(message.params)
+          : this.send('Fetch.continueRequest', { requestId: message.params.requestId });
+        handle.catch((error) => {
+          error.launchFailure = true;
+          this.interceptionError = error;
+        });
+        return;
+      }
       const pending = this.pending.get(message.id);
       if (!pending) return;
       this.pending.delete(message.id);
@@ -214,6 +224,15 @@ async function getHistory(origin, id) {
   return response.json();
 }
 
+async function latestPendingAction(origin) {
+  const quests = await getQuests(origin);
+  const parentsWithChildren = new Set(quests.map((quest) => quest.parentQuestId).filter(Boolean));
+  const selected = quests.filter((quest) => quest.status === 'pending' && !parentsWithChildren.has(quest.id))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))[0];
+  assert.ok(selected, 'a saved pending leaf is required');
+  return { kind: 'resume', questId: selected.id, rootQuestId: selected.rootQuestId };
+}
+
 async function postJson(origin, path, body) {
   const response = await fetch(`${origin}${path}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -242,6 +261,140 @@ function assertSavedSnapshot(text, quests) {
   for (const quest of quests) {
     assert.deepEqual(snapshot.quests.find((entry) => entry.id === quest.id), quest);
   }
+}
+
+async function assertDashboard(origin, page, dataFile, expectedNext, label) {
+  const quests = await getQuests(origin);
+  assertSavedSnapshot(await readFile(dataFile, 'utf8'), quests);
+  const response = await fetch(`${origin}/api/dashboard`);
+  assert.equal(response.status, 200, `${label}: dashboard HTTP status`);
+  assert.match(response.headers.get('content-type') ?? '', /application\/json/);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const dashboard = await response.json();
+  const counts = {
+    pending: quests.filter((quest) => quest.status === 'pending').length,
+    completed: quests.filter((quest) => quest.status === 'completed').length,
+    failed: quests.filter((quest) => quest.status === 'failed').length,
+    redesigned: quests.filter((quest) => quest.parentQuestId !== null).length,
+  };
+  assert.deepEqual(dashboard.counts, counts, `${label}: counts from saved quests`);
+  const roots = quests.filter((quest) => quest.parentQuestId === null)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+  assert.deepEqual(dashboard.histories.map((history) => history.rootQuestId),
+    roots.map((quest) => quest.id), `${label}: ordered roots`);
+  for (const [index, root] of roots.entries()) {
+    assert.deepEqual(dashboard.histories[index], await getHistory(origin, root.id),
+      `${label}: complete saved chain for ${root.id}`);
+  }
+  assert.deepEqual(dashboard.nextAction, expectedNext, `${label}: next action`);
+
+  const readView = () => page.evaluate(`(() => ({
+    visible: !document.getElementById('dashboard-content').hidden,
+    errorHidden: document.getElementById('dashboard-error').hidden,
+    counts: [...document.querySelectorAll('#dashboard-counts dd')].map((node) => Number(node.textContent)),
+    histories: [...document.querySelectorAll('#dashboard-histories > section')].map((section) => ({
+      root: section.querySelector('.quest-relation')?.textContent,
+      steps: [...section.querySelectorAll('ol li')].map((step) => ({
+        summary: step.querySelector('strong')?.textContent,
+        relation: step.querySelector('p')?.textContent,
+      })),
+    })),
+    next: document.getElementById('dashboard-next').textContent,
+    link: document.querySelector('#dashboard-next a')?.getAttribute('href'),
+    emptyVisible: !document.getElementById('dashboard-empty').hidden,
+  }))()`);
+  const expectedValues = Object.values(counts);
+  const view = await waitFor(async () => {
+    const current = await readView();
+    return current.visible && current.errorHidden &&
+      JSON.stringify(current.counts) === JSON.stringify(expectedValues) &&
+      current.histories.length === roots.length &&
+      current.histories.every((history, index) =>
+        history.root === `루트 ID: ${roots[index].id}` &&
+        history.steps.length === dashboard.histories[index].quests.length &&
+        history.steps.every((step, stepIndex) => step.relation?.includes(
+          `ID: ${dashboard.histories[index].quests[stepIndex].id}`))) ? current : null;
+  }, `${label}: dashboard rendered from server`);
+  for (const [index, history] of dashboard.histories.entries()) {
+    for (const [stepIndex, quest] of history.quests.entries()) {
+      const step = view.histories[index].steps[stepIndex];
+      assert.ok(step.summary.includes(`${quest.title} · 예상 ${quest.estimatedMinutes}분`),
+        `${label}: stored title and duration`);
+      assert.ok(step.summary.includes(quest.status === 'completed' ? '완료'
+        : quest.status === 'failed' ? '실패' : '진행 전'), `${label}: saved status`);
+      assert.equal(step.summary.includes('현재 끝 행동'), stepIndex === history.quests.length - 1);
+      assert.equal(step.relation, `ID: ${quest.id}${quest.parentQuestId ? ` · 부모 ID: ${quest.parentQuestId}` : ''}`);
+    }
+  }
+  assert.equal(view.emptyVisible, quests.length === 0, `${label}: empty-state visibility`);
+  const selected = quests.find((quest) => quest.id === expectedNext.questId);
+  assert.ok(view.next.includes(expectedNext.kind === 'resume' ? '이어서 해볼까요?'
+    : expectedNext.kind === 'redesign' ? '더 작게 시작해요'
+      : expectedNext.kind === 'rest_or_create' ? '잠시 쉬어도 괜찮아요'
+        : '새 퀘스트 만들기'), `${label}: next action copy`);
+  if (selected && expectedNext.kind !== 'rest_or_create') assert.ok(view.next.includes(selected.title));
+  if (expectedNext.kind === 'rest_or_create') assert.ok(view.next.includes('1분짜리 행동'));
+  assert.equal(view.link, selected && ['resume', 'redesign'].includes(expectedNext.kind)
+    ? `#quest-${selected.id}` : '#quest-form', `${label}: next action target`);
+  assert.equal(await page.evaluate(`!!document.querySelector(${JSON.stringify(view.link)})`), true,
+    `${label}: next action target exists`);
+  return dashboard;
+}
+
+async function assertDashboardViewport(page, width) {
+  const geometry = await page.evaluate(`(() => {
+    const nodes = [document.getElementById('dashboard-next'), document.getElementById('dashboard-counts'),
+      ...document.querySelectorAll('#dashboard-histories > section'), document.querySelector('#dashboard-next a')];
+    return { width: innerWidth, scrollWidth: document.documentElement.scrollWidth,
+      rects: nodes.map((node) => { const rect = node.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, width: rect.width }; }) };
+  })()`);
+  assert.equal(geometry.width, width);
+  assert.ok(geometry.scrollWidth <= width + 1, `dashboard horizontal overflow: ${JSON.stringify(geometry)}`);
+  assert.ok(geometry.rects.every((rect) => rect.width > 100 && rect.left >= 0 && rect.right <= width + 1),
+    `dashboard controls outside viewport: ${JSON.stringify(geometry)}`);
+}
+
+async function assertDashboardReadErrorAndRetry(origin, page, dataFile, expectedNext) {
+  const beforeFile = await readFile(dataFile, 'utf8');
+  const beforeQuests = await getQuests(origin);
+  const beforeDashboard = await (await fetch(`${origin}/api/dashboard`)).json();
+  page.interceptionError = undefined;
+  let injected = false;
+  page.handlePausedRequest = async ({ requestId }) => {
+    if (injected) return page.send('Fetch.continueRequest', { requestId });
+    injected = true;
+    await page.send('Fetch.fulfillRequest', {
+      requestId,
+      responseCode: 500,
+      responseHeaders: [{ name: 'Content-Type', value: 'application/json; charset=utf-8' }],
+      body: Buffer.from(JSON.stringify({ error: {
+        code: 'INTERNAL_ERROR', message: '기록을 불러오지 못했습니다.', fields: {},
+      } })).toString('base64'),
+    });
+  };
+  await page.send('Fetch.enable', { patterns: [{ urlPattern: '*/api/dashboard', requestStage: 'Request' }] });
+  try {
+    await page.evaluate("document.getElementById('dashboard-retry').click()");
+    await waitFor(async () => {
+      if (page.interceptionError) throw page.interceptionError;
+      return page.evaluate(`(() => {
+        const content = document.getElementById('dashboard-content');
+        const error = document.getElementById('dashboard-error');
+        const retry = document.getElementById('dashboard-retry');
+        return content.hidden && !error.hidden && !retry.hidden &&
+          error.textContent.includes('다시 시도해 주세요.');
+      })()`);
+    }, 'dashboard 500 hides stale counts and offers retry');
+  } finally {
+    await page.send('Fetch.disable');
+    page.handlePausedRequest = undefined;
+  }
+  assert.equal(await readFile(dataFile, 'utf8'), beforeFile, 'dashboard GET error changed saved data');
+  assert.deepEqual(await getQuests(origin), beforeQuests);
+  assert.deepEqual(await (await fetch(`${origin}/api/dashboard`)).json(), beforeDashboard);
+  await page.evaluate("document.getElementById('dashboard-retry').click()");
+  await assertDashboard(origin, page, dataFile, expectedNext, 'dashboard read retry');
 }
 
 await access(serverEntry).catch(() => {
@@ -275,6 +428,8 @@ try {
   browser = await startBrowser(profile);
   await browser.page.navigate(`${running.origin}/`);
   await waitFor(() => browser.page.evaluate("!document.getElementById('empty-state').hidden"), 'empty list in browser');
+  await assertDashboard(running.origin, browser.page, dataFile,
+    { kind: 'create', questId: null, rootQuestId: null }, 'empty saved dashboard');
   await browser.page.evaluate("document.getElementById('available-minutes').value = '20'; document.getElementById('energy').value = 'medium'; document.getElementById('quest-form').requestSubmit()");
   const id = await waitFor(() => browser.page.evaluate("!document.getElementById('result-section').hidden && document.querySelector('#quest-list li')?.dataset.questId"), 'created quest and stored list');
   const saved = await (await fetch(`${running.origin}/api/quests`)).json();
@@ -283,6 +438,9 @@ try {
   assert.equal(saved.quests[0].energy, 'medium');
   assert.ok(saved.quests[0].estimatedMinutes <= 20);
   assert.equal(await browser.page.evaluate("document.getElementById('result-quest-title').textContent"), saved.quests[0].title);
+  await assertDashboard(running.origin, browser.page, dataFile,
+    { kind: 'resume', questId: id, rootQuestId: id }, 'first created quest');
+  await assertDashboardViewport(browser.page, 1280);
   await screenshot(browser.page, 'e2e-desktop.png');
 
   await browser.page.evaluate("document.getElementById('available-minutes').value = '4'; document.getElementById('quest-form').requestSubmit()");
@@ -311,6 +469,8 @@ try {
   await browser.page.navigate(`${running.origin}/`);
   await waitFor(() => browser.page.evaluate(`document.querySelector('#quest-list li')?.dataset.questId === '${id}'`), 'stored list after server restart');
   assert.equal(await browser.page.evaluate("document.querySelector('#quest-list h3')?.textContent"), saved.quests[0].title);
+  await assertDashboard(running.origin, browser.page, dataFile,
+    { kind: 'resume', questId: id, rootQuestId: id }, 'first server restart');
 
   await browser.page.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   const mobile = await browser.page.evaluate("({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth, formWidth: document.getElementById('quest-form').getBoundingClientRect().width, buttonWidth: document.getElementById('create-button').getBoundingClientRect().width, listCount: document.querySelectorAll('#quest-list li').length })");
@@ -323,6 +483,9 @@ try {
   const createdOnMobile = mobileSaved.quests.find((quest) => quest.id === mobileId);
   assert.ok(createdOnMobile);
   assert.ok(createdOnMobile.estimatedMinutes <= 5);
+  await assertDashboard(running.origin, browser.page, dataFile,
+    { kind: 'resume', questId: mobileId, rootQuestId: mobileId }, 'mobile created quest');
+  await assertDashboardViewport(browser.page, 390);
   await screenshot(browser.page, 'e2e-mobile.png');
 
   await browser.page.send('Emulation.setDeviceMetricsOverride', {
@@ -345,6 +508,8 @@ try {
   const completedHistory = await getHistory(running.origin, id);
   assert.equal(completedHistory.rootQuestId, id);
   assert.deepEqual(completedHistory.quests, [completed]);
+  await assertDashboard(running.origin, browser.page, dataFile,
+    { kind: 'resume', questId: mobileId, rootQuestId: mobileId }, 'completed desktop quest');
   await clickAction(browser.page, id, '이력 보기');
   await waitFor(() => browser.page.evaluate(`${cardExpression(id)}?.querySelector('.quest-history:not([hidden])')?.textContent.includes(${JSON.stringify(id)})`), 'completed history in browser');
   for (const [action, body] of [['complete', {}], ['fail', { failureReason: 'time_shortage' }]]) {
@@ -398,6 +563,8 @@ try {
     assert.equal(history.rootQuestId, parentId);
     assert.deepEqual(history.quests, [failed, child]);
     assert.deepEqual(await getHistory(running.origin, parentId), history);
+    await assertDashboard(running.origin, browser.page, dataFile,
+      await latestPendingAction(running.origin), `${reason} redesign`);
     assert.equal(await browser.page.evaluate(`${cardExpression(parentId)}?.querySelector('.quest-history')?.textContent.includes(${JSON.stringify(child.id)})`), true);
     assert.equal(await browser.page.evaluate(`${cardExpression(child.id)}?.textContent.includes(${JSON.stringify(parentId)})`), true);
     await assertRejectedUnchanged(running.origin, dataFile, `/api/quests/${parentId}/redesign`,
@@ -419,6 +586,11 @@ try {
   assert.equal(await browser.page.evaluate(`${cardExpression(conflictId)}?.querySelector('.quest-state')?.textContent.includes('완료 기록 ·')`), true);
   assert.deepEqual(await getQuests(running.origin), beforeConflict);
   assert.equal(await readFile(dataFile, 'utf8'), beforeConflictFile);
+  await assertDashboard(running.origin, browser.page, dataFile,
+    await latestPendingAction(running.origin),
+    'stale card 409 refresh');
+  await assertDashboardReadErrorAndRetry(running.origin, browser.page, dataFile,
+    await latestPendingAction(running.origin));
 
   // Force a real persistence failure using only the isolated E2E data path.
   const persistenceQuestId = chains.time_shortage.childId;
@@ -438,6 +610,9 @@ try {
     await rename(backupFile, dataFile);
   }
   assertSavedSnapshot(await readFile(dataFile, 'utf8'), await getQuests(running.origin));
+  await assertDashboard(running.origin, browser.page, dataFile,
+    await latestPendingAction(running.origin),
+    'failed persistence keeps dashboard');
   await screenshot(browser.page, 'e2e-desktop-persistence-error.png');
 
   await browser.page.send('Emulation.setDeviceMetricsOverride', {
@@ -470,6 +645,9 @@ try {
   const mobileChild = (await getQuests(running.origin)).find((quest) => quest.parentQuestId === mobileId);
   assert.equal(mobileChild.estimatedMinutes, 2);
   assert.equal(mobileChild.rootQuestId, mobileId);
+  await assertDashboard(running.origin, browser.page, dataFile,
+    await latestPendingAction(running.origin), 'mobile redesign');
+  await assertDashboardViewport(browser.page, 390);
   assert.equal(await browser.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'), true);
   assert.equal(await browser.page.evaluate(`${cardExpression(mobileChild.id)}?.textContent.includes(${JSON.stringify(mobileId)})`), true);
   await screenshot(browser.page, 'e2e-mobile-record.png');
@@ -492,12 +670,22 @@ try {
   await assertRejectedUnchanged(running.origin, dataFile, `/api/quests/${lastChild.id}/redesign`,
     {}, 409, 'REDESIGN_LIMIT_REACHED');
   assertSavedSnapshot(await readFile(dataFile, 'utf8'), await getQuests(running.origin));
+  await assertDashboard(running.origin, browser.page, dataFile,
+    await latestPendingAction(running.origin),
+    'one-minute failed leaf');
 
   // Reload and process restart must both recover the same confirmed records.
   const beforeReload = await getQuests(running.origin);
   await browser.page.evaluate('window.__questReloadMarker = true');
   await browser.page.send('Page.reload', { ignoreCache: true });
   await waitFor(() => browser.page.evaluate(`window.__questReloadMarker !== true && ${cardExpression(lastChild.id)}?.textContent.includes('지금은 1분짜리 행동입니다')`), 'confirmed records after reload');
+  const dashboardBeforeReload = await (await fetch(`${running.origin}/api/dashboard`)).json();
+  assert.deepEqual(dashboardBeforeReload.counts, {
+    pending: 2, completed: 2, failed: 6, redesigned: 5,
+  });
+  await assertDashboard(running.origin, browser.page, dataFile,
+    await latestPendingAction(running.origin),
+    'dashboard after browser reload');
   assert.equal(await browser.page.evaluate(`${cardExpression(id)}?.querySelector('.quest-state')?.textContent.includes('완료 기록 ·')`), true);
   await clickAction(browser.page, mobileChild.id, '이력 보기');
   await waitFor(() => browser.page.evaluate(`${cardExpression(mobileChild.id)}?.querySelector('.quest-history:not([hidden])')?.textContent.includes(${JSON.stringify(lastChild.id)})`), 'descendant history after reload');
@@ -511,6 +699,8 @@ try {
     'disconnected list must not look like a confirmed success');
   running = await startServer(dataFile);
   assert.deepEqual(await getQuests(running.origin), beforeReload);
+  assert.deepEqual(await (await fetch(`${running.origin}/api/dashboard`)).json(), dashboardBeforeReload,
+    'dashboard survives server restart unchanged');
   assertSavedSnapshot(await readFile(dataFile, 'utf8'), beforeReload);
   assert.deepEqual((await getHistory(running.origin, lastChild.id)).quests.map((quest) => quest.id),
     [mobileId, mobileChild.id, lastChild.id]);
@@ -518,7 +708,37 @@ try {
   await waitFor(() => browser.page.evaluate(`${cardExpression(lastChild.id)}?.textContent.includes('지금은 1분짜리 행동입니다')`), 'stored records after process restart');
   assert.equal(await browser.page.evaluate(`${cardExpression(chains.low_energy.childId)}?.querySelector('.quest-state')?.textContent`), '진행할 수 있는 행동');
   assert.equal(await browser.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'), true);
-  console.log(`PASS real server e2e: create, complete, three failure reasons and redesign histories, immutable 400/409 and real 503, disconnect, reload, process restart, desktop 1280px and mobile 390px; ${beforeReload.length} saved quests`);
+  await assertDashboard(running.origin, browser.page, dataFile,
+    await latestPendingAction(running.origin),
+    'dashboard after server restart');
+  await assertDashboardViewport(browser.page, 390);
+  for (const pendingId of [chains.time_shortage.childId, chains.low_energy.childId]) {
+    await clickAction(browser.page, pendingId, '완료 기록');
+    await waitFor(() => browser.page.evaluate(`${cardExpression(pendingId)}?.querySelector('.quest-state')?.textContent.includes('완료 기록 ·')`),
+      'last pending quest completed');
+  }
+  await assertDashboard(running.origin, browser.page, dataFile,
+    { kind: 'rest_or_create', questId: lastChild.id, rootQuestId: mobileId },
+    'one-minute leaf is next after all pending quests complete');
+  const knownFinalIds = (await getQuests(running.origin)).map((quest) => quest.id);
+  const redesignRootId = await createInBrowser(browser.page, 20, 'medium', knownFinalIds);
+  await selectReason(browser.page, redesignRootId, 'time_shortage');
+  await clickAction(browser.page, redesignRootId, '실패 기록');
+  await waitFor(() => browser.page.evaluate(`${cardExpression(redesignRootId)}?.querySelector('.quest-state')?.textContent.includes('시간이 부족했어요')`),
+    'new failed root for redesign next action');
+  await assertDashboard(running.origin, browser.page, dataFile,
+    { kind: 'redesign', questId: redesignRootId, rootQuestId: redesignRootId },
+    'redesign takes priority over one-minute rest');
+  await clickAction(browser.page, redesignRootId, '더 작은 행동 제안');
+  const finalChildId = await waitFor(async () => {
+    const quests = await getQuests(running.origin);
+    return quests.find((quest) => quest.parentQuestId === redesignRootId)?.id;
+  }, 'last redesign saved');
+  await assertDashboard(running.origin, browser.page, dataFile,
+    { kind: 'resume', questId: finalChildId, rootQuestId: redesignRootId },
+    'redesigned child becomes next action');
+  await assertDashboardViewport(browser.page, 390);
+  console.log(`PASS real server e2e: dashboard empty/counts/histories/all next actions/500 retry, create, complete, three failure reasons and redesign histories, immutable 400/409 and real 503, disconnect, reload, process restart, desktop 1280px and mobile 390px; ${(await getQuests(running.origin)).length} saved quests`);
 } catch (error) {
   originalError = error;
   throw error;
