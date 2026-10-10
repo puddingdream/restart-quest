@@ -13,6 +13,8 @@ const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascrip
 let quests = [];
 let failNextPost = false;
 let postCount = 0;
+let transitionPostCount = 0;
+let nextTransitionFailure = '';
 
 function sendJson(response, status, value) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -42,6 +44,70 @@ const server = createServer(async (request, response) => {
       quests = [quest, ...quests];
       return sendJson(response, 201, { quest });
     }
+  }
+  const route = /^\/api\/quests\/([^/]+)\/(complete|fail|redesign|history)$/.exec(pathname);
+  if (route) {
+    const [, id, action] = route;
+    const quest = quests.find((entry) => entry.id === id);
+    if (!quest) return sendJson(response, 404, { error: { code: 'NOT_FOUND', message: '퀘스트가 없습니다.', fields: {} } });
+    if (action === 'history' && request.method === 'GET') {
+      const rootQuestId = quest.rootQuestId;
+      const chain = [];
+      let step = quests.find((entry) => entry.id === rootQuestId);
+      while (step) {
+        chain.push(step);
+        step = quests.find((entry) => entry.parentQuestId === step.id);
+      }
+      return sendJson(response, 200, { rootQuestId, quests: chain });
+    }
+    if (request.method !== 'POST') return sendJson(response, 405, {});
+    transitionPostCount++;
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    if (nextTransitionFailure) {
+      const failure = nextTransitionFailure;
+      nextTransitionFailure = '';
+      if (failure === 'disconnect') {
+        // Finish a deliberately short response body after sending headers. An
+        // empty response can be retried by the browser before it reaches fetch.
+        response.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Content-Length': '1024',
+          Connection: 'close',
+        });
+        return response.end('{"quest":');
+      }
+      const payload = failure === '400' ? fixture.invalidReason
+        : failure === '409' ? fixture.alreadyResolved : fixture.persistenceError;
+      return sendJson(response, Number(failure), payload);
+    }
+    if (action === 'complete' || action === 'fail') {
+      if (action === 'fail' && !fixture.failureReasons[input.failureReason]) {
+        return sendJson(response, 400, fixture.invalidReason);
+      }
+      if (quest.status !== 'pending') return sendJson(response, 409, fixture.alreadyResolved);
+      const updated = { ...quest, status: action === 'complete' ? 'completed' : 'failed',
+        completedAt: action === 'complete' ? fixture.record.completedAt : null,
+        failedAt: action === 'fail' ? fixture.record.failedAt : null,
+        failureReason: action === 'fail' ? input.failureReason : null };
+      quests = quests.map((entry) => entry.id === id ? updated : entry);
+      return sendJson(response, 200, { quest: updated });
+    }
+    if (quest.status !== 'failed') return sendJson(response, 409, fixture.alreadyResolved);
+    if (quests.some((entry) => entry.parentQuestId === id)) return sendJson(response, 409, fixture.alreadyRedesigned);
+    if (quest.estimatedMinutes <= 1) return sendJson(response, 409, { error: {
+      code: 'REDESIGN_LIMIT_REACHED', message: '더 줄일 수 없는 1분 행동입니다.', fields: {},
+    } });
+    const reason = quest.failureReason;
+    const minutes = reason === 'time_shortage' ? Math.floor(quest.estimatedMinutes / 2)
+      : reason === 'low_energy' ? Math.floor(quest.estimatedMinutes * 2 / 3)
+        : Math.floor(quest.estimatedMinutes / 3);
+    const newQuest = { ...fixture.quest, id: randomUUID(), createdAt: fixture.record.childCreatedAt,
+      title: fixture.failureReasons[reason].title, description: `더 작은 행동으로 ${minutes}분 동안 시작합니다.`,
+      estimatedMinutes: Math.max(1, minutes), parentQuestId: id, rootQuestId: quest.rootQuestId };
+    quests = [newQuest, ...quests];
+    return sendJson(response, 201, { quest: newQuest });
   }
   const name = pathname === '/' ? 'index.html' : pathname.slice(1);
   if (!['index.html', 'styles.css', 'app.js', 'quest-app.js'].includes(name)) {
@@ -177,6 +243,87 @@ try {
   assert.equal(quests.length, 3);
   await writeFile(join(screenshotDir, 'desktop-error.png'), Buffer.from((await devtools.send('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
 
+  const cardExpression = (id) => `document.querySelector('#quest-list li[data-quest-id=' + ${JSON.stringify(JSON.stringify(id))} + ']')`;
+  const clickAction = (id, label) => devtools.evaluate(`(() => {
+    const card = ${cardExpression(id)};
+    const control = [...card.querySelectorAll('button')].find((button) => button.textContent.trim() === ${JSON.stringify(label)});
+    if (!control || control.disabled) throw new Error('Action unavailable: ${label}');
+    control.click(); return true;
+  })()`);
+  const selectReason = (id, reason) => devtools.evaluate(`(() => {
+    const field = ${cardExpression(id)}.querySelector('select');
+    field.value = ${JSON.stringify(reason)};
+    field.dispatchEvent(new Event('change', { bubbles: true })); return field.value;
+  })()`);
+
+  await clickAction(savedId, '완료 기록');
+  await waitFor(() => devtools.evaluate(`${cardExpression(savedId)}?.textContent.includes('완료 기록 ·')`), 'completed card');
+  assert.equal(quests.find((entry) => entry.id === savedId).status, 'completed');
+  assert.equal(await devtools.evaluate(`${cardExpression(savedId)}?.querySelectorAll('button').length`), 2,
+    'completed card exposes history and refresh, no state actions');
+
+  await devtools.evaluate("document.getElementById('quest-form').requestSubmit()");
+  await waitFor(() => devtools.evaluate("document.querySelectorAll('#quest-list li').length === 4"), 'fourth created quest');
+  for (const [reason, expected] of Object.entries(fixture.failureReasons)) {
+    const parent = quests.find((entry) => entry.status === 'pending');
+    assert.ok(parent, 'pending parent for each failure reason');
+    await selectReason(parent.id, reason);
+    await clickAction(parent.id, '실패 기록');
+    await waitFor(() => devtools.evaluate(`${cardExpression(parent.id)}?.querySelector('.quest-state')?.textContent.includes(${JSON.stringify(expected.label)})`), `${reason} recorded`);
+    assert.equal(quests.find((entry) => entry.id === parent.id).failureReason, reason);
+    await clickAction(parent.id, '더 작은 행동 제안');
+    await waitFor(() => devtools.evaluate(`${cardExpression(parent.id)}?.querySelector('.quest-history:not([hidden])')?.textContent.includes('루트 ID:')`), `${reason} history`);
+    const alternative = quests.find((entry) => entry.parentQuestId === parent.id);
+    assert.ok(alternative && alternative.estimatedMinutes < parent.estimatedMinutes);
+    assert.equal(alternative.rootQuestId, parent.rootQuestId);
+    assert.equal(alternative.title, expected.title);
+    assert.equal(await devtools.evaluate(`${cardExpression(parent.id)}?.textContent.includes(${JSON.stringify(alternative.id)})`), true);
+  }
+  await writeFile(join(screenshotDir, 'desktop-record.png'), Buffer.from((await devtools.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })).data, 'base64'));
+
+  await devtools.evaluate("document.getElementById('quest-form').requestSubmit()");
+  await waitFor(() => devtools.evaluate("document.querySelectorAll('#quest-list li').length === 8"), 'error test quest');
+  const errorQuest = quests.find((entry) => entry.status === 'pending' && !entry.parentQuestId);
+  await selectReason(errorQuest.id, 'time_shortage');
+  nextTransitionFailure = '400';
+  await clickAction(errorQuest.id, '실패 기록');
+  await waitFor(() => devtools.evaluate(`${cardExpression(errorQuest.id)}?.querySelector('.field-error:not([hidden])')?.textContent.includes('지원하는 실패 이유')`), '400 reason error');
+  assert.equal(quests.find((entry) => entry.id === errorQuest.id).status, 'pending');
+  nextTransitionFailure = '409';
+  await clickAction(errorQuest.id, '완료 기록');
+  await waitFor(() => devtools.evaluate(`${cardExpression(errorQuest.id)}?.querySelector('.notice-error:not([hidden])')?.textContent.includes('이미 기록된 퀘스트')`), '409 conflict');
+  nextTransitionFailure = '503';
+  await clickAction(errorQuest.id, '완료 기록');
+  await waitFor(() => devtools.evaluate(`${cardExpression(errorQuest.id)}?.querySelector('.notice-error:not([hidden])')?.textContent.includes('저장에 실패')`), '503 persistence error');
+  nextTransitionFailure = 'disconnect';
+  const beforeDisconnect = transitionPostCount;
+  await clickAction(errorQuest.id, '완료 기록');
+  let disconnectResult;
+  try {
+    disconnectResult = await waitFor(() => devtools.evaluate(`(() => {
+      const cardMessage = ${cardExpression(errorQuest.id)}?.querySelector('.notice-error:not([hidden])')?.textContent ?? '';
+      const listError = document.getElementById('list-error');
+      const retry = document.getElementById('retry-button');
+      if (/연결할 수 없습니다|서버 응답이 늦어지고|서버 응답을 확인할 수 없습니다/.test(cardMessage)) return 'card';
+      if (!listError.hidden && !retry.hidden && listError.textContent.includes('요청 결과를 확인하지 못했습니다')) return 'list';
+      return null;
+    })()`), 'disconnected POST', 20000);
+  } catch (error) {
+    const visibleState = await devtools.evaluate(`(() => ({
+      status: ${cardExpression(errorQuest.id)}?.querySelector('.quest-state')?.textContent ?? null,
+      cardError: ${cardExpression(errorQuest.id)}?.querySelector('.notice-error')?.textContent ?? null,
+      listError: document.getElementById('list-error').textContent,
+      listErrorVisible: !document.getElementById('list-error').hidden,
+    }))()`);
+    throw new Error(`${error.message}; POST count delta ${transitionPostCount - beforeDisconnect}; UI ${JSON.stringify(visibleState)}`);
+  }
+  assert.equal(transitionPostCount, beforeDisconnect + 1, 'disconnected POST is not retried');
+  assert.equal(quests.find((entry) => entry.id === errorQuest.id).status, 'pending');
+  if (disconnectResult === 'list') {
+    await devtools.evaluate("document.getElementById('retry-button').click()");
+    await waitFor(() => devtools.evaluate(`${cardExpression(errorQuest.id)}?.querySelector('.quest-state')?.textContent.includes('진행할 수 있는 행동')`), 'list recovery after disconnect');
+  }
+
   await devtools.evaluate('window.__beforeReload = true');
   await devtools.send('Page.reload', { ignoreCache: true });
   await waitFor(() => devtools.evaluate(`window.__beforeReload !== true && [...document.querySelectorAll('#quest-list li')].some((item) => item.dataset.questId === '${savedId}' && item.querySelector('h3')?.textContent === ${JSON.stringify(fixture.quest.title)})`), 'reload persisted list');
@@ -185,8 +332,17 @@ try {
   const mobile = await devtools.evaluate("({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth, formWidth: document.getElementById('quest-form').getBoundingClientRect().width, buttonWidth: document.getElementById('create-button').getBoundingClientRect().width })");
   assert.ok(mobile.scrollWidth <= mobile.width + 1, `mobile horizontal overflow: ${JSON.stringify(mobile)}`);
   assert.ok(mobile.buttonWidth > 200 && mobile.formWidth > 200, 'mobile controls remain usable');
+  const mobileActions = await devtools.evaluate(`(() => {
+    const card = ${cardExpression(errorQuest.id)};
+    const select = card.querySelector('select').getBoundingClientRect();
+    const buttons = [...card.querySelectorAll('button:not([hidden])')].map((button) => button.getBoundingClientRect());
+    return { selectWidth: select.width, buttonWidths: buttons.map((button) => button.width),
+      withinViewport: [select, ...buttons].every((rect) => rect.left >= 0 && rect.right <= innerWidth + 1) };
+  })()`);
+  assert.ok(mobileActions.withinViewport && mobileActions.selectWidth > 200 &&
+    mobileActions.buttonWidths.every((width) => width > 200), JSON.stringify(mobileActions));
   await writeFile(join(screenshotDir, 'mobile.png'), Buffer.from((await devtools.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })).data, 'base64'));
-  console.log(`PASS browser smoke: empty, POST/GET, success to invalid time/energy/503, reload ID ${savedId}, desktop 1280px, mobile 390px; screenshots in dist/verification/`);
+  console.log(`PASS browser smoke: create, complete, three failure reasons and redesign histories, 400/409/503/disconnect, reload ID ${savedId}, desktop 1280px, mobile 390px; screenshots in dist/verification/`);
 } catch (error) {
   originalError = error;
   throw error;

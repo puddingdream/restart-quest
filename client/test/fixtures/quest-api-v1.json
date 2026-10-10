@@ -14,6 +14,38 @@
     "parentQuestId": null,
     "rootQuestId": "6d4e86be-c832-4a80-8853-1b0d7a11a723"
   },
+  "record": {
+    "completedAt": "2026-10-09T00:05:00.000Z",
+    "failedAt": "2026-10-09T00:06:00.000Z",
+    "childId": "9eeb1021-fd20-40dc-9fe9-d3f20bc91872",
+    "childCreatedAt": "2026-10-09T00:07:00.000Z"
+  },
+  "failureReasons": {
+    "time_shortage": { "label": "시간이 부족했어요", "title": "짧게 시작하기", "minutes": 10 },
+    "low_energy": { "label": "지금은 에너지가 부족했어요", "title": "자료 한 가지 준비하기", "minutes": 13 },
+    "unclear_start": { "label": "어디서 시작할지 막막했어요", "title": "첫 단서 한 줄 적기", "minutes": 6 }
+  },
+  "invalidReason": {
+    "error": {
+      "code": "INVALID_INPUT",
+      "message": "실패 이유를 선택해 주세요.",
+      "fields": { "failureReason": "지원하는 실패 이유를 선택해 주세요." }
+    }
+  },
+  "alreadyResolved": {
+    "error": {
+      "code": "QUEST_ALREADY_RESOLVED",
+      "message": "이미 기록된 퀘스트입니다. 저장된 상태를 확인해 주세요.",
+      "fields": {}
+    }
+  },
+  "alreadyRedesigned": {
+    "error": {
+      "code": "QUEST_ALREADY_REDESIGNED",
+      "message": "이미 더 작은 행동이 있습니다. 이력을 확인해 주세요.",
+      "fields": {}
+    }
+  },
   "empty": { "quests": [] },
   "invalidInput": {
     "error": {

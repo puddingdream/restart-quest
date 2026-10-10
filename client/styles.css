@@ -43,6 +43,21 @@ input:hover, select:hover { border-color: #61846b; }
 .quest-card h3 { margin: 0; font-size: 1.17rem; letter-spacing: -.025em; }
 .quest-card p { margin: 10px 0 0; line-height: 1.7; color: #53645a; }
 .quest-card .duration { color: #336348; font-size: .89rem; font-weight: 800; }
+.quest-card .quest-state { font-weight: 800; color: #315541; }
+.quest-card .quest-relation { overflow-wrap: anywhere; font-size: .82rem; }
+.quest-guidance { padding: 10px 12px; border-radius: 8px; background: #f0f3e9; }
+.quest-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 9px; margin-top: 16px; }
+.quest-actions label { flex-basis: 100%; font-weight: 700; }
+.quest-actions select { flex: 1 1 100%; min-width: 0; }
+.quest-actions .field-error { flex-basis: 100%; }
+.action-button { min-height: 44px; padding: 8px 12px; border: 1px solid #b7c8b5; border-radius: 8px; background: #f5f8f1; color: #214833; font-weight: 700; }
+.action-button:hover:not(:disabled) { background: #e3eee0; }
+.quest-action-status { min-height: 1em; }
+.quest-history { margin-top: 16px; padding: 16px; border: 1px solid #c9d8c7; border-radius: 10px; background: #f6f9f4; overflow-wrap: anywhere; }
+.quest-history h4 { margin: 0 0 8px; }
+.quest-history ol { margin: 14px 0 0; padding-left: 22px; }
+.quest-history li { margin-bottom: 12px; line-height: 1.5; }
+.quest-history li p { margin: 3px 0; font-size: .82rem; }
 .quest-card.featured { padding: 28px 30px; border-color: #bfcfbd; }
 .featured .quest-label { margin: 0 0 12px; }
 .featured h3 { font-size: 1.5rem; }
@@ -62,6 +77,7 @@ footer { padding: 25px 0; color: #718077; font-size: .83rem; text-align: center;
   .section-heading { gap: 12px; margin-bottom: 25px; }
   .section-number { flex-basis: 31px; width: 31px; height: 31px; }
   .fields, .quest-list { grid-template-columns: 1fr; }
+  .quest-actions .action-button { flex: 1 1 100%; }
   .fields { gap: 14px; }
   .hint { min-height: 0; }
   #create-button { max-width: none; }
