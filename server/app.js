@@ -104,6 +104,19 @@ export async function createQuestServer({
   return createServer(async (request, response) => {
     try {
       const pathname = new URL(request.url, 'http://localhost').pathname;
+      if (pathname === '/api/dashboard') {
+        if (request.method !== 'GET') {
+          response.setHeader('Allow', 'GET');
+          failure(response, 405, 'METHOD_NOT_ALLOWED', '지원하지 않는 요청 방식입니다.');
+          return;
+        }
+        try {
+          json(response, 200, store.dashboard());
+        } catch {
+          failure(response, 500, 'INTERNAL_ERROR', '기록을 불러오지 못했습니다.');
+        }
+        return;
+      }
       if (pathname === '/api/quests') {
         if (request.method === 'GET') {
           json(response, 200, { quests: store.list() });
