@@ -98,6 +98,62 @@ test('생성 성공은 POST 결과와 뒤따른 GET 저장 목록을 각각 표�
   assert.match(document.nodes['result-minutes'].textContent, /20분/);
 });
 
+for (const [field, invalidValue, errorId] of [
+  ['available-minutes', '4', 'minutes-error'],
+  ['energy', 'unknown', 'energy-error'],
+]) {
+  test(`생성 성공 뒤 잘못된 ${field} 제출은 이전 성공 강조를 지우고 저장 목록은 유지한다`, async () => {
+    const document = makeDocument();
+    const { fetchRequest, calls } = queuedFetch(
+      body(fixture.empty), body({ quest: fixture.quest }, 201), body({ quests: [fixture.quest] }),
+      body({ quest: fixture.quest }, 201), body({ quests: [fixture.quest] }),
+    );
+    mountQuestApp(document, fetchRequest);
+    await nextTurn();
+    await document.nodes['quest-form'].emit('submit');
+    assert.equal(document.nodes['result-section'].hidden, false);
+
+    document.nodes[field].value = invalidValue;
+    await document.nodes['quest-form'].emit('submit');
+    assert.equal(calls.length, 3, '잘못된 입력은 POST를 추가하지 않는다');
+    assert.equal(document.nodes['result-section'].hidden, true);
+    assert.equal(document.nodes[errorId].hidden, false);
+    assert.equal(document.nodes[field].getAttribute('aria-invalid'), 'true');
+    assert.equal(document.nodes['quest-list'].children.length, 1, '기존 저장 기록은 유지한다');
+
+    document.nodes[field].value = field === 'energy' ? 'medium' : '20';
+    await document.nodes['quest-form'].emit('submit');
+    assert.equal(calls.length, 5);
+    assert.equal(document.nodes['result-section'].hidden, false, '새 성공에서만 다시 표시한다');
+    assert.equal(document.nodes[errorId].hidden, true);
+    assert.equal(document.nodes[field].getAttribute('aria-invalid'), undefined);
+  });
+}
+
+for (const [name, failure, expectsRefresh] of [
+  ['서버 503', body(fixture.persistenceError, 503), false],
+  ['통신 오류', new Error('network lost'), true],
+]) {
+  test(`생성 성공 뒤 ${name}는 이전 성공 강조를 지운다`, async () => {
+    const document = makeDocument();
+    const responses = [body(fixture.empty), body({ quest: fixture.quest }, 201), body({ quests: [fixture.quest] }), failure];
+    if (expectsRefresh) responses.push(body({ quests: [fixture.quest] }));
+    const { fetchRequest, calls } = queuedFetch(...responses);
+    mountQuestApp(document, fetchRequest);
+    await nextTurn();
+    await document.nodes['quest-form'].emit('submit');
+    assert.equal(document.nodes['result-section'].hidden, false);
+
+    await document.nodes['quest-form'].emit('submit');
+    assert.equal(document.nodes['result-section'].hidden, true);
+    assert.equal(document.nodes['form-error'].hidden, false);
+    assert.equal(document.nodes['form-status'].textContent, '퀘스트를 만들지 못했습니다.');
+    assert.equal(document.nodes['quest-list'].children.length, 1);
+    assert.equal(calls.filter(({ options }) => options?.method === 'POST').length, 2);
+    assert.equal(calls.length, expectsRefresh ? 5 : 4);
+  });
+}
+
 test('잘못된 로컬 입력은 전송과 성공 표시 없이 필드 오류를 보인다', async () => {
   const document = makeDocument();
   const { fetchRequest, calls } = queuedFetch(body(fixture.empty));

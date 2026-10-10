@@ -198,11 +198,14 @@ try {
   assert.equal(await browser.page.evaluate("document.getElementById('result-quest-title').textContent"), saved.quests[0].title);
   await screenshot(browser.page, 'e2e-desktop.png');
 
+  await browser.page.evaluate("document.getElementById('available-minutes').value = '4'; document.getElementById('quest-form').requestSubmit()");
+  await waitFor(() => browser.page.evaluate("!document.getElementById('form-error').hidden && document.getElementById('result-section').hidden"), 'success then invalid browser input');
+  assert.equal(await browser.page.evaluate("document.querySelector('#quest-list li')?.dataset.questId"), id);
+  await screenshot(browser.page, 'e2e-desktop-error.png');
+
   await browser.page.evaluate('window.__questReloadMarker = true');
   await browser.page.send('Page.reload', { ignoreCache: true });
   await waitFor(() => browser.page.evaluate(`window.__questReloadMarker !== true && document.querySelector('#quest-list li')?.dataset.questId === '${id}'`), 'stored list after reload');
-  await browser.page.evaluate("document.getElementById('available-minutes').value = '4'; document.getElementById('quest-form').requestSubmit()");
-  await waitFor(() => browser.page.evaluate("!document.getElementById('form-error').hidden && document.getElementById('result-section').hidden"), 'invalid browser input');
   const invalid = await fetch(`${running.origin}/api/quests`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ availableMinutes: 4, energy: 'medium' }),

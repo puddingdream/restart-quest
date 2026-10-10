@@ -156,22 +156,37 @@ try {
   await mkdir(screenshotDir, { recursive: true });
   await writeFile(join(screenshotDir, 'desktop.png'), Buffer.from((await devtools.send('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
 
-  await devtools.evaluate('window.__beforeReload = true');
-  await devtools.send('Page.reload', { ignoreCache: true });
-  await waitFor(() => devtools.evaluate(`window.__beforeReload !== true && document.querySelector('#quest-list li')?.dataset.questId === '${savedId}' && document.querySelector('#quest-list h3')?.textContent === ${JSON.stringify(fixture.quest.title)}`), 'reload persisted list');
+  await devtools.evaluate("document.getElementById('available-minutes').value = '4'; document.getElementById('quest-form').requestSubmit()");
+  await waitFor(() => devtools.evaluate("!document.getElementById('minutes-error').hidden && document.getElementById('result-section').hidden && document.querySelector('#quest-list li')?.dataset.questId"), 'success then invalid time');
+  assert.equal(postCount, 1);
+  await devtools.evaluate("document.getElementById('available-minutes').value = '20'; document.getElementById('quest-form').requestSubmit()");
+  await waitFor(() => devtools.evaluate("!document.getElementById('result-section').hidden && document.querySelectorAll('#quest-list li').length === 2"), 'valid retry after invalid time');
+  assert.equal(postCount, 2);
 
+  await devtools.evaluate("document.getElementById('available-minutes').value = '20'; document.getElementById('energy').value = 'unknown'; document.getElementById('quest-form').requestSubmit()");
+  await waitFor(() => devtools.evaluate("!document.getElementById('energy-error').hidden && document.getElementById('result-section').hidden"), 'success then invalid energy');
+  assert.equal(postCount, 2);
+
+  await devtools.evaluate("document.getElementById('energy').value = 'medium'; document.getElementById('quest-form').requestSubmit()");
+  await waitFor(() => devtools.evaluate("!document.getElementById('result-section').hidden && document.querySelectorAll('#quest-list li').length === 3"), 'valid retry after invalid energy');
+  assert.equal(postCount, 3);
   failNextPost = true;
   await devtools.evaluate("document.getElementById('quest-form').requestSubmit()");
-  await waitFor(() => devtools.evaluate("!document.getElementById('form-error').hidden && document.getElementById('result-section').hidden"), '503 error without success');
-  assert.equal(postCount, 2);
-  assert.equal(quests.length, 1);
+  await waitFor(() => devtools.evaluate("!document.getElementById('form-error').hidden && document.getElementById('result-section').hidden"), 'success then 503 without old success');
+  assert.equal(postCount, 4);
+  assert.equal(quests.length, 3);
+  await writeFile(join(screenshotDir, 'desktop-error.png'), Buffer.from((await devtools.send('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
+
+  await devtools.evaluate('window.__beforeReload = true');
+  await devtools.send('Page.reload', { ignoreCache: true });
+  await waitFor(() => devtools.evaluate(`window.__beforeReload !== true && [...document.querySelectorAll('#quest-list li')].some((item) => item.dataset.questId === '${savedId}' && item.querySelector('h3')?.textContent === ${JSON.stringify(fixture.quest.title)})`), 'reload persisted list');
 
   await devtools.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   const mobile = await devtools.evaluate("({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth, formWidth: document.getElementById('quest-form').getBoundingClientRect().width, buttonWidth: document.getElementById('create-button').getBoundingClientRect().width })");
   assert.ok(mobile.scrollWidth <= mobile.width + 1, `mobile horizontal overflow: ${JSON.stringify(mobile)}`);
   assert.ok(mobile.buttonWidth > 200 && mobile.formWidth > 200, 'mobile controls remain usable');
   await writeFile(join(screenshotDir, 'mobile.png'), Buffer.from((await devtools.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })).data, 'base64'));
-  console.log(`PASS browser smoke: empty, POST/GET, reload ID ${savedId}, 503, desktop 1280px, mobile 390px; screenshots in dist/verification/`);
+  console.log(`PASS browser smoke: empty, POST/GET, success to invalid time/energy/503, reload ID ${savedId}, desktop 1280px, mobile 390px; screenshots in dist/verification/`);
 } catch (error) {
   originalError = error;
   throw error;

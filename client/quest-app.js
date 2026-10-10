@@ -84,6 +84,7 @@ export function mountQuestApp(document, fetchRequest) {
   const retryButton = element(document, 'retry-button');
   const emptyState = element(document, 'empty-state');
   const list = element(document, 'quest-list');
+  const resultSection = element(document, 'result-section');
   let listRequest = 0;
 
   function showFieldErrors(fields = {}) {
@@ -143,6 +144,7 @@ export function mountQuestApp(document, fetchRequest) {
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (button.disabled) return;
+    resultSection.hidden = true;
     showFieldErrors();
     showFormError('');
     const input = parseInput(minutesInput.value, energyInput.value);
@@ -156,13 +158,12 @@ export function mountQuestApp(document, fetchRequest) {
     button.disabled = true;
     button.textContent = '퀘스트를 저장하는 중입니다…';
     formStatus.textContent = '퀘스트를 저장하는 중입니다.';
-    element(document, 'result-section').hidden = true;
     try {
       const quest = await api.create(input.value);
       element(document, 'result-quest-title').textContent = quest.title;
       element(document, 'result-description').textContent = quest.description;
       element(document, 'result-minutes').textContent = `예상 ${quest.estimatedMinutes}분 · 저장됨`;
-      element(document, 'result-section').hidden = false;
+      resultSection.hidden = false;
       formStatus.textContent = '새 퀘스트가 저장되었습니다.';
       await loadList();
     } catch (error) {
