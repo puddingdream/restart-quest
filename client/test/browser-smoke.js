@@ -15,14 +15,51 @@ let failNextPost = false;
 let postCount = 0;
 let transitionPostCount = 0;
 let nextTransitionFailure = '';
+let nextDashboardFailure = '';
 
 function sendJson(response, status, value) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   response.end(JSON.stringify(value));
 }
 
+function dashboardFromQuests() {
+  const counts = { pending: 0, completed: 0, failed: 0, redesigned: 0 };
+  for (const quest of quests) {
+    counts[quest.status]++;
+    if (quest.parentQuestId) counts.redesigned++;
+  }
+  const histories = quests.filter((quest) => !quest.parentQuestId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
+    .map((rootQuest) => {
+      const chain = [rootQuest];
+      let child;
+      while ((child = quests.find((quest) => quest.parentQuestId === chain.at(-1).id))) chain.push(child);
+      return { rootQuestId: rootQuest.id, quests: chain };
+    });
+  const tails = histories.map((history) => ({ quest: history.quests.at(-1), rootQuestId: history.rootQuestId }));
+  const byRecent = (a, b) => b.quest.createdAt.localeCompare(a.quest.createdAt) || a.quest.id.localeCompare(b.quest.id);
+  const pending = tails.filter(({ quest }) => quest.status === 'pending').sort(byRecent)[0];
+  const redesign = tails.filter(({ quest }) => quest.status === 'failed' && quest.estimatedMinutes > 1).sort(byRecent)[0];
+  const rest = tails.filter(({ quest }) => quest.status === 'failed' && quest.estimatedMinutes === 1).sort(byRecent)[0];
+  const selected = pending ?? redesign ?? rest;
+  const kind = pending ? 'resume' : redesign ? 'redesign' : rest ? 'rest_or_create' : 'create';
+  return { counts, histories, nextAction: { kind, questId: selected?.quest.id ?? null,
+    rootQuestId: selected?.rootQuestId ?? null } };
+}
+
 const server = createServer(async (request, response) => {
   const pathname = new URL(request.url, 'http://localhost').pathname;
+  if (pathname === '/api/dashboard' && request.method === 'GET') {
+    if (nextDashboardFailure) {
+      const failure = nextDashboardFailure;
+      nextDashboardFailure = '';
+      if (failure === '500') return sendJson(response, 500, fixture.dashboardError);
+      response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8',
+        'Content-Length': '1024', Connection: 'close' });
+      return response.end('{"counts":');
+    }
+    return sendJson(response, 200, dashboardFromQuests());
+  }
   if (pathname === '/api/quests') {
     if (request.method === 'GET') return sendJson(response, 200, { quests });
     if (request.method === 'POST') {
@@ -210,6 +247,8 @@ try {
   await devtools.send('Runtime.enable');
   await devtools.send('Page.navigate', { url });
   await waitFor(() => devtools.evaluate("document.readyState === 'complete' && !document.getElementById('empty-state').hidden"), 'empty list');
+  await waitFor(() => devtools.evaluate("!document.getElementById('dashboard-content').hidden && !document.getElementById('dashboard-empty').hidden"), 'empty dashboard');
+  assert.deepEqual(await devtools.evaluate("[...document.querySelectorAll('#dashboard-counts dd')].map((node) => node.textContent)"), ['0', '0', '0', '0']);
   assert.equal(postCount, 0);
 
   await devtools.evaluate("document.getElementById('available-minutes').value = '20'; document.getElementById('energy').value = 'medium'; document.getElementById('quest-form').requestSubmit()");
@@ -217,6 +256,7 @@ try {
   assert.equal(postCount, 1);
   assert.equal(quests[0].id, savedId);
   assert.ok(quests[0].estimatedMinutes <= 20);
+  await waitFor(() => devtools.evaluate("!document.getElementById('dashboard-content').hidden && document.querySelector('#dashboard-counts dd')?.textContent === '1'"), 'created dashboard');
 
   const screenshotDir = join(root, 'dist', 'verification');
   await mkdir(screenshotDir, { recursive: true });
@@ -259,6 +299,7 @@ try {
   await clickAction(savedId, '완료 기록');
   await waitFor(() => devtools.evaluate(`${cardExpression(savedId)}?.textContent.includes('완료 기록 ·')`), 'completed card');
   assert.equal(quests.find((entry) => entry.id === savedId).status, 'completed');
+  await waitFor(() => devtools.evaluate("[...document.querySelectorAll('#dashboard-counts dd')][1]?.textContent === '1'"), 'completed dashboard');
   assert.equal(await devtools.evaluate(`${cardExpression(savedId)}?.querySelectorAll('button').length`), 2,
     'completed card exposes history and refresh, no state actions');
 
@@ -279,6 +320,14 @@ try {
     assert.equal(alternative.title, expected.title);
     assert.equal(await devtools.evaluate(`${cardExpression(parent.id)}?.textContent.includes(${JSON.stringify(alternative.id)})`), true);
   }
+  await waitFor(() => devtools.evaluate("[...document.querySelectorAll('#dashboard-counts dd')][3]?.textContent === '3'"), 'redesigned dashboard');
+  assert.deepEqual(await devtools.evaluate("[...document.querySelectorAll('#dashboard-counts dd')].map((node) => node.textContent)"), ['3', '1', '3', '3']);
+  assert.equal(await devtools.evaluate("document.querySelectorAll('#dashboard-histories > section').length"), 4);
+  nextDashboardFailure = '500';
+  await devtools.evaluate("document.getElementById('dashboard-retry').click()");
+  await waitFor(() => devtools.evaluate("document.getElementById('dashboard-content').hidden && !document.getElementById('dashboard-error').hidden && !document.getElementById('dashboard-retry').hidden"), 'dashboard 500');
+  await devtools.evaluate("document.getElementById('dashboard-retry').click()");
+  await waitFor(() => devtools.evaluate("!document.getElementById('dashboard-content').hidden && document.getElementById('dashboard-error').hidden"), 'dashboard retry');
   await writeFile(join(screenshotDir, 'desktop-record.png'), Buffer.from((await devtools.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })).data, 'base64'));
 
   await devtools.evaluate("document.getElementById('quest-form').requestSubmit()");
@@ -341,8 +390,16 @@ try {
   })()`);
   assert.ok(mobileActions.withinViewport && mobileActions.selectWidth > 200 &&
     mobileActions.buttonWidths.every((width) => width > 200), JSON.stringify(mobileActions));
+  const mobileDashboard = await devtools.evaluate(`(() => {
+    const nodes = [document.getElementById('dashboard-next'), document.getElementById('dashboard-counts'),
+      ...document.querySelectorAll('#dashboard-histories > section'), document.querySelector('#dashboard-next a')];
+    return nodes.map((node) => { const rect = node.getBoundingClientRect();
+      return { width: rect.width, left: rect.left, right: rect.right }; });
+  })()`);
+  assert.ok(mobileDashboard.every((rect) => rect.width > 100 && rect.left >= 0 && rect.right <= 391),
+    `mobile dashboard overflow: ${JSON.stringify(mobileDashboard)}`);
   await writeFile(join(screenshotDir, 'mobile.png'), Buffer.from((await devtools.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })).data, 'base64'));
-  console.log(`PASS browser smoke: create, complete, three failure reasons and redesign histories, 400/409/503/disconnect, reload ID ${savedId}, desktop 1280px, mobile 390px; screenshots in dist/verification/`);
+  console.log(`PASS browser smoke: dashboard empty/record/500/retry, create, complete, three failure reasons and redesign histories, 400/409/503/disconnect, reload ID ${savedId}, desktop 1280px, mobile 390px; screenshots in dist/verification/`);
 } catch (error) {
   originalError = error;
   throw error;

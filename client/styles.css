@@ -66,6 +66,20 @@ input:hover, select:hover { border-color: #61846b; }
 #list-status:empty { display: none; }
 .empty-state { margin: 0; padding: 36px 24px; border: 1px dashed #b9c7b7; border-radius: 12px; color: #52645a; text-align: center; line-height: 1.7; }
 .text-button { margin-top: 14px; padding: 8px 0; border: 0; background: transparent; color: #24563d; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+.dashboard-next { margin-bottom: 22px; padding: 22px; border: 1px solid #c9d8c7; border-radius: 12px; background: #f0f5ed; }
+.dashboard-next h3 { margin: 0 0 8px; font-size: 1.15rem; }
+.dashboard-next p { margin: 0 0 18px; line-height: 1.6; }
+.dashboard-link { display: inline-flex; align-items: center; min-height: 44px; text-decoration: none; }
+.dashboard-counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 12px; margin: 0 0 24px; }
+.dashboard-counts dt, .dashboard-counts dd { min-width: 0; margin: 0; padding: 12px; border: 1px solid #dce2d7; text-align: center; }
+.dashboard-counts dt { grid-row: 1; border-radius: 10px 10px 0 0; border-bottom: 0; color: #53645a; font-weight: 700; }
+.dashboard-counts dd { grid-row: 2; border-radius: 0 0 10px 10px; font-size: 1.5rem; font-weight: 800; }
+.dashboard-histories { display: grid; gap: 12px; }
+.dashboard-history { min-width: 0; padding: 18px; border: 1px solid #dce2d7; border-radius: 12px; overflow-wrap: anywhere; }
+.dashboard-history h3 { margin: 0 0 8px; font-size: 1.05rem; }
+.dashboard-history p { margin: 6px 0; line-height: 1.5; }
+.dashboard-history ol { margin: 12px 0 0; padding-left: 22px; }
+.dashboard-history li { margin: 0 0 10px; line-height: 1.5; }
 footer { padding: 25px 0; color: #718077; font-size: .83rem; text-align: center; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
@@ -77,6 +91,10 @@ footer { padding: 25px 0; color: #718077; font-size: .83rem; text-align: center;
   .section-heading { gap: 12px; margin-bottom: 25px; }
   .section-number { flex-basis: 31px; width: 31px; height: 31px; }
   .fields, .quest-list { grid-template-columns: 1fr; }
+  .dashboard-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 10px; }
+  .dashboard-counts dt:nth-of-type(n+3) { grid-row: 3; }
+  .dashboard-counts dd:nth-of-type(n+3) { grid-row: 4; }
+  .dashboard-next, .dashboard-history { padding: 16px; }
   .quest-actions .action-button { flex: 1 1 100%; }
   .fields { gap: 14px; }
   .hint { min-height: 0; }
