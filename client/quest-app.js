@@ -8,6 +8,12 @@ const FAILURE_REASONS = {
   unclear_start: '어디서 시작할지 막막했어요',
 };
 const REQUEST_TIMEOUT_MS = 7000;
+const FILTER_STORAGE_KEY = 'restart-quest-status-filter';
+const FILTER_LABELS = { all: '전체', pending: '진행 전', completed: '완료', failed: '실패' };
+
+function validFilter(value) {
+  return Object.hasOwn(FILTER_LABELS, value) ? value : 'all';
+}
 
 function element(document, id) {
   const node = document.getElementById(id);
@@ -166,6 +172,7 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
   const formError = element(document, 'form-error');
   const formStatus = element(document, 'form-status');
   const listStatus = element(document, 'list-status');
+  const statusFilter = element(document, 'quest-status-filter');
   const listError = element(document, 'list-error');
   const retryButton = element(document, 'retry-button');
   const emptyState = element(document, 'empty-state');
@@ -184,7 +191,40 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
   };
   let listRequest = 0;
   let dashboardRequest = 0;
+  let questsFromServer = null;
+  let selectedFilter = 'all';
   const pendingQuestIds = new Set();
+
+  try {
+    selectedFilter = validFilter(document.defaultView?.localStorage?.getItem(FILTER_STORAGE_KEY));
+  } catch {
+    // Storage can be disabled while the rest of the page remains usable.
+  }
+  statusFilter.value = selectedFilter;
+
+  function showFilteredList() {
+    if (!questsFromServer) return;
+    const visible = selectedFilter === 'all' ? questsFromServer
+      : questsFromServer.filter((quest) => quest.status === selectedFilter);
+    const childIds = new Set(questsFromServer.map((quest) => quest.parentQuestId).filter(Boolean));
+    list.replaceChildren(...visible.map((quest) => renderQuest(quest, childIds)));
+    emptyState.hidden = visible.length !== 0;
+    emptyState.textContent = questsFromServer.length === 0
+      ? '아직 저장된 퀘스트가 없어요. 위에서 오늘의 첫 행동을 만들어 보세요.'
+      : `${FILTER_LABELS[selectedFilter]} 기록이 없습니다.`;
+    listStatus.textContent = `${FILTER_LABELS[selectedFilter]} 퀘스트 ${visible.length}개`;
+  }
+
+  function setFilter(value) {
+    selectedFilter = validFilter(value);
+    statusFilter.value = selectedFilter;
+    try {
+      document.defaultView?.localStorage?.setItem(FILTER_STORAGE_KEY, selectedFilter);
+    } catch {
+      // Filter selection still works for this page when storage is unavailable.
+    }
+    showFilteredList();
+  }
 
   function showFieldErrors(fields = {}) {
     for (const [field, [inputId, errorId]] of Object.entries(FIELD_IDS)) {
@@ -213,6 +253,9 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
   function dashboardLink(label, id) {
     const link = note('a', label, 'action-button dashboard-link');
     link.href = id ? `#quest-${id}` : '#quest-form';
+    if (id) link.addEventListener('click', () => {
+      if (!findCard(id) && questsFromServer?.some((quest) => quest.id === id)) setFilter('all');
+    });
     return link;
   }
 
@@ -470,6 +513,8 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
   async function loadList() {
     const request = ++listRequest;
     const dashboardRefresh = loadDashboard();
+    questsFromServer = null;
+    list.replaceChildren();
     listStatus.textContent = '저장된 퀘스트를 불러오는 중입니다.';
     listError.hidden = true;
     retryButton.hidden = true;
@@ -477,10 +522,8 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
     try {
       const quests = await api.list();
       if (request !== listRequest) return;
-      const childIds = new Set(quests.map((quest) => quest.parentQuestId).filter(Boolean));
-      list.replaceChildren(...quests.map((quest) => renderQuest(quest, childIds)));
-      emptyState.hidden = quests.length !== 0;
-      listStatus.textContent = quests.length ? `저장된 퀘스트 ${quests.length}개` : '';
+      questsFromServer = quests;
+      showFilteredList();
       await dashboardRefresh;
       return true;
     } catch (error) {
@@ -535,6 +578,7 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
   });
 
   retryButton.addEventListener('click', loadList);
+  statusFilter.addEventListener('change', () => setFilter(statusFilter.value));
   dashboard?.retry.addEventListener('click', loadDashboard);
   loadList();
   return { loadList, loadDashboard };

@@ -34,10 +34,10 @@ class FakeNode {
   focus() { this.focused = true; }
 }
 
-function makeDocument() {
+function makeDocument(storage) {
   const ids = [
     'quest-form', 'available-minutes', 'energy', 'create-button', 'form-error',
-    'form-status', 'list-status', 'list-error', 'retry-button', 'empty-state',
+    'form-status', 'list-status', 'quest-status-filter', 'list-error', 'retry-button', 'empty-state',
     'quest-list', 'minutes-error', 'energy-error', 'result-section',
     'result-quest-title', 'result-description', 'result-minutes',
   ];
@@ -45,7 +45,8 @@ function makeDocument() {
   nodes['available-minutes'].value = '20';
   nodes.energy.value = 'medium';
   nodes['result-section'].hidden = true;
-  return { nodes, getElementById: (id) => nodes[id], createElement: (tag) => new FakeNode(tag) };
+  return { nodes, defaultView: storage ? { localStorage: storage } : undefined,
+    getElementById: (id) => nodes[id], createElement: (tag) => new FakeNode(tag) };
 }
 
 function makeDashboardDocument() {
@@ -88,6 +89,19 @@ const child = (reason) => ({ ...fixture.quest, id: fixture.record.childId,
   estimatedMinutes: fixture.failureReasons[reason].minutes,
   parentQuestId: fixture.quest.id, rootQuestId: fixture.quest.id });
 
+function mixedQuests() {
+  const pending = { ...fixture.quest, id: 'pending-id', rootQuestId: 'pending-id' };
+  const done = { ...completed(), id: 'completed-id', rootQuestId: 'completed-id' };
+  const fail = { ...failed('time_shortage'), id: 'failed-id', rootQuestId: 'failed-id' };
+  return [fail, pending, done];
+}
+
+function memoryStorage(initial = {}) {
+  const values = new Map(Object.entries(initial));
+  return { getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value), values };
+}
+
 function dashboardFetch({ dashboards, lists, posts = [], histories = [] }) {
   const calls = [];
   const fetchRequest = async (url, options) => {
@@ -120,6 +134,146 @@ test('첫 GET의 빈 목록은 안내를 표시하고 퀘스트를 만들지 않
   assert.equal(document.nodes['quest-list'].children.length, 0);
   assert.equal(document.nodes['result-section'].hidden, true);
   assert.equal(calls[0].url, '/api/quests');
+});
+
+test('상태 필터는 GET 순서를 유지한 부분집합만 표시하고 저장·API 요청을 만들지 않는다', async () => {
+  const document = makeDocument();
+  const quests = mixedQuests();
+  const original = structuredClone(quests);
+  const { fetchRequest, calls } = queuedFetch(body({ quests }));
+  mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  const filter = document.nodes['quest-status-filter'];
+  assert.equal(filter.value, 'all');
+  assert.deepEqual(document.nodes['quest-list'].children.map((item) => item.dataset.questId),
+    quests.map((quest) => quest.id));
+  for (const [value, expected] of [
+    ['pending', ['pending-id']], ['completed', ['completed-id']],
+    ['failed', ['failed-id']], ['all', quests.map((quest) => quest.id)],
+  ]) {
+    filter.value = value;
+    await filter.emit('change');
+    assert.deepEqual(document.nodes['quest-list'].children.map((item) => item.dataset.questId), expected);
+  }
+  assert.deepEqual(quests, original);
+  assert.deepEqual(calls.map(({ url }) => url), ['/api/quests']);
+});
+
+test('필터의 빈 결과는 전체 빈 저장소 및 GET 오류와 구분한다', async () => {
+  const document = makeDocument();
+  const { fetchRequest } = queuedFetch(body({ quests: [fixture.quest] }),
+    body(fixture.persistenceError, 503), body(fixture.empty));
+  const app = mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  document.nodes['quest-status-filter'].value = 'failed';
+  await document.nodes['quest-status-filter'].emit('change');
+  assert.equal(document.nodes['empty-state'].hidden, false);
+  assert.match(document.nodes['empty-state'].textContent, /실패 기록이 없습니다/);
+  assert.equal(document.nodes['list-status'].textContent, '실패 퀘스트 0개');
+  await app.loadList();
+  assert.equal(document.nodes['empty-state'].hidden, true);
+  assert.equal(document.nodes['list-error'].hidden, false);
+  await document.nodes['retry-button'].emit('click');
+  assert.equal(document.nodes['empty-state'].hidden, false);
+  assert.match(document.nodes['empty-state'].textContent, /아직 저장된 퀘스트가 없어요/);
+});
+
+test('유효한 필터는 새 문서에서 복원되고 잘못된 값과 저장소 오류는 전체로 시작한다', async () => {
+  const storage = memoryStorage();
+  const first = makeDocument(storage);
+  mountQuestApp(first, queuedFetch(body({ quests: mixedQuests() })).fetchRequest);
+  await nextTurn();
+  first.nodes['quest-status-filter'].value = 'completed';
+  await first.nodes['quest-status-filter'].emit('change');
+  assert.equal(storage.getItem('restart-quest-status-filter'), 'completed');
+  const reloaded = makeDocument(storage);
+  mountQuestApp(reloaded, queuedFetch(body({ quests: mixedQuests() })).fetchRequest);
+  await nextTurn();
+  assert.equal(reloaded.nodes['quest-status-filter'].value, 'completed');
+  assert.deepEqual(reloaded.nodes['quest-list'].children.map((item) => item.dataset.questId), ['completed-id']);
+
+  storage.setItem('restart-quest-status-filter', 'unknown');
+  const invalid = makeDocument(storage);
+  mountQuestApp(invalid, queuedFetch(body({ quests: mixedQuests() })).fetchRequest);
+  await nextTurn();
+  assert.equal(invalid.nodes['quest-status-filter'].value, 'all');
+  assert.equal(invalid.nodes['quest-list'].children.length, 3);
+  const broken = makeDocument({ getItem() { throw new Error('blocked'); },
+    setItem() { throw new Error('blocked'); } });
+  mountQuestApp(broken, queuedFetch(body({ quests: mixedQuests() })).fetchRequest);
+  await nextTurn();
+  broken.nodes['quest-status-filter'].value = 'failed';
+  await broken.nodes['quest-status-filter'].emit('change');
+  assert.equal(broken.nodes['quest-list'].children[0].dataset.questId, 'failed-id');
+});
+
+test('상태 전이 뒤 목록 재조회에도 필터를 적용하고 대시보드 링크는 가려진 카드를 연다', async () => {
+  const document = makeDashboardDocument();
+  const quests = mixedQuests();
+  const done = { ...quests[1], status: 'completed', completedAt: fixture.record.completedAt };
+  const initialDashboard = { counts: { pending: 1, completed: 1, failed: 1, redesigned: 0 },
+    histories: quests.map((quest) => ({ rootQuestId: quest.id, quests: [quest] })),
+    nextAction: { kind: 'resume', questId: 'pending-id', rootQuestId: 'pending-id' } };
+  const afterDashboard = { counts: { pending: 0, completed: 2, failed: 1, redesigned: 0 },
+    histories: [quests[0], done, quests[2]].map((quest) => ({ rootQuestId: quest.id, quests: [quest] })),
+    nextAction: { kind: 'redesign', questId: 'failed-id', rootQuestId: 'failed-id' } };
+  const { fetchRequest, calls } = dashboardFetch({
+    dashboards: [body(initialDashboard), body(afterDashboard)],
+    lists: [body({ quests }), body({ quests: [quests[0], done, quests[2]] })],
+    posts: [body({ quest: done })],
+  });
+  mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  const filter = document.nodes['quest-status-filter'];
+  filter.value = 'pending';
+  await filter.emit('change');
+  assert.deepEqual(document.nodes['quest-list'].children.map((item) => item.dataset.questId), ['pending-id']);
+  await findNode(card(document), '완료 기록').emit('click');
+  assert.equal(document.nodes['empty-state'].hidden, false);
+  assert.match(document.nodes['empty-state'].textContent, /진행 전 기록이 없습니다/);
+  assert.equal(document.nodes['dashboard-counts'].children[3].textContent, '2');
+  await document.nodes['dashboard-next'].children[2].emit('click');
+  assert.equal(filter.value, 'all');
+  assert.deepEqual(document.nodes['quest-list'].children.map((item) => item.dataset.questId),
+    ['failed-id', 'pending-id', 'completed-id']);
+  assert.equal(calls.filter(({ url }) => url === '/api/quests').length, 2);
+});
+
+test('생성·실패·재설계 뒤에도 선택한 상태만 새 전체 GET에서 표시한다', async () => {
+  const document = makeDocument();
+  const failQuest = failed('time_shortage');
+  const alternative = child('time_shortage');
+  const { fetchRequest, calls } = queuedFetch(
+    body(fixture.empty), body({ quest: fixture.quest }, 201), body({ quests: [fixture.quest] }),
+    body({ quest: failQuest }), body({ quests: [failQuest] }),
+    body({ quest: alternative }, 201), body({ quests: [alternative, failQuest] }),
+    body({ rootQuestId: fixture.quest.id, quests: [failQuest, alternative] }),
+  );
+  mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  const filter = document.nodes['quest-status-filter'];
+  filter.value = 'completed';
+  await filter.emit('change');
+  await document.nodes['quest-form'].emit('submit');
+  assert.equal(filter.value, 'completed');
+  assert.equal(document.nodes['empty-state'].hidden, false);
+  assert.equal(document.nodes['quest-list'].children.length, 0);
+  filter.value = 'pending';
+  await filter.emit('change');
+  card(document).reasonSelect.value = 'time_shortage';
+  await card(document).reasonSelect.emit('change');
+  await findNode(card(document), '실패 기록').emit('click');
+  assert.equal(filter.value, 'pending');
+  assert.equal(document.nodes['quest-list'].children.length, 0);
+  filter.value = 'failed';
+  await filter.emit('change');
+  await findNode(card(document), '더 작은 행동 제안').emit('click');
+  assert.equal(filter.value, 'failed');
+  assert.deepEqual(document.nodes['quest-list'].children.map((item) => item.dataset.questId),
+    [fixture.quest.id]);
+  assert.equal(card(document).historyBox.hidden, false);
+  assert.deepEqual(calls.map(({ options }) => options?.method ?? 'GET'),
+    ['GET', 'POST', 'GET', 'POST', 'GET', 'POST', 'GET', 'GET']);
 });
 
 test('생성 성공은 POST 결과와 뒤따른 GET 저장 목록을 각각 표시한다', async () => {

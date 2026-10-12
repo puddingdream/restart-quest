@@ -82,6 +82,15 @@
           <span class="section-number" aria-hidden="true">04</span>
           <div><h2 id="history-title">저장된 퀘스트</h2><p>이전에 만든 행동을 여기서 다시 볼 수 있어요.</p></div>
         </div>
+        <div class="list-filter">
+          <label for="quest-status-filter">상태별로 보기</label>
+          <select id="quest-status-filter" aria-controls="quest-list" aria-describedby="list-status">
+            <option value="all">전체</option>
+            <option value="pending">진행 전</option>
+            <option value="completed">완료</option>
+            <option value="failed">실패</option>
+          </select>
+        </div>
         <p id="list-status" role="status" aria-live="polite">저장된 퀘스트를 불러오는 중입니다.</p>
         <p id="list-error" class="notice notice-error" role="alert" hidden></p>
         <button id="retry-button" class="text-button" type="button" hidden>목록 다시 불러오기</button>

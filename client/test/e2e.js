@@ -181,6 +181,15 @@ async function screenshot(page, name) {
 const cardExpression = (id) =>
   `document.querySelector('#quest-list li[data-quest-id=' + ${JSON.stringify(JSON.stringify(id))} + ']')`;
 
+async function selectFilter(page, status) {
+  assert.equal(await page.evaluate(`(() => {
+    const control = document.getElementById('quest-status-filter');
+    control.value = ${JSON.stringify(status)};
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+    return control.value;
+  })()`), status);
+}
+
 async function clickAction(page, id, label) {
   await page.evaluate(`(() => {
     const card = ${cardExpression(id)};
@@ -449,6 +458,10 @@ try {
   assert.equal(await browser.page.evaluate("document.getElementById('result-quest-title').textContent"), saved.quests[0].title);
   await assertDashboard(running.origin, browser.page, dataFile,
     { kind: 'resume', questId: id, rootQuestId: id }, 'first created quest');
+  assert.equal(await browser.page.evaluate("document.getElementById('quest-status-filter').value"), 'all');
+  await selectFilter(browser.page, 'failed');
+  assert.equal(await browser.page.evaluate("!document.getElementById('empty-state').hidden && document.getElementById('empty-state').textContent.includes('실패 기록이 없습니다.')"), true);
+  await selectFilter(browser.page, 'all');
   await assertDashboardViewport(browser.page, 1280);
   await screenshot(browser.page, 'e2e-desktop.png');
 
@@ -582,6 +595,43 @@ try {
       {}, 409, 'QUEST_NOT_FAILED');
     chains[reason] = { parentId, childId: child.id };
   }
+  const beforeFilter = await getQuests(running.origin);
+  const fileBeforeFilter = await readFile(dataFile, 'utf8');
+  const dashboardBeforeFilter = await (await fetch(`${running.origin}/api/dashboard`)).json();
+  for (const status of ['all', 'pending', 'completed', 'failed']) {
+    await selectFilter(browser.page, status);
+    assert.deepEqual(await browser.page.evaluate("[...document.querySelectorAll('#quest-list li')].map((card) => card.dataset.questId)"),
+      beforeFilter.filter((quest) => status === 'all' || quest.status === status).map((quest) => quest.id),
+      `${status} filter preserves GET order`);
+  }
+  assert.deepEqual(await getQuests(running.origin), beforeFilter, 'filter does not change GET records');
+  assert.equal(await readFile(dataFile, 'utf8'), fileBeforeFilter, 'filter does not write the saved file');
+  assert.deepEqual(await (await fetch(`${running.origin}/api/dashboard`)).json(), dashboardBeforeFilter,
+    'filter does not change dashboard counts, histories or next action');
+  await screenshot(browser.page, 'e2e-desktop-filter.png');
+  await selectFilter(browser.page, 'completed');
+  await browser.page.evaluate('window.__questReloadMarker = true');
+  await browser.page.send('Page.reload', { ignoreCache: true });
+  await waitFor(() => browser.page.evaluate(`window.__questReloadMarker !== true &&
+    document.getElementById('quest-status-filter').value === 'completed' &&
+    document.querySelectorAll('#quest-list li').length === ${beforeFilter.filter((quest) => quest.status === 'completed').length}`),
+  'completed filter after reload');
+  await browser.page.evaluate("localStorage.setItem('restart-quest-status-filter', 'unknown'); window.__questReloadMarker = true");
+  await browser.page.send('Page.reload', { ignoreCache: true });
+  await waitFor(() => browser.page.evaluate(`window.__questReloadMarker !== true &&
+    document.getElementById('quest-status-filter').value === 'all' &&
+    document.querySelectorAll('#quest-list li').length === ${beforeFilter.length}`),
+  'invalid filter after reload');
+  await waitFor(() => browser.page.evaluate("!document.getElementById('dashboard-content').hidden && !!document.querySelector('#dashboard-next a')"), 'dashboard link after reload');
+  await selectFilter(browser.page, 'completed');
+  const nextId = dashboardBeforeFilter.nextAction.questId;
+  assert.equal(await browser.page.evaluate(`${cardExpression(nextId)} === null`), true);
+  await browser.page.evaluate("document.querySelector('#dashboard-next a').click()");
+  assert.equal(await browser.page.evaluate(`document.getElementById('quest-status-filter').value === 'all' && !!${cardExpression(nextId)}`), true,
+    'dashboard link reveals an item hidden by the filter');
+  assert.deepEqual(await getQuests(running.origin), beforeFilter);
+  assert.equal(await readFile(dataFile, 'utf8'), fileBeforeFilter);
+  assert.deepEqual(await (await fetch(`${running.origin}/api/dashboard`)).json(), dashboardBeforeFilter);
   await screenshot(browser.page, 'e2e-desktop-record.png');
 
   // A stale card receives a real 409 after another HTTP client confirms the quest.
@@ -646,6 +696,14 @@ try {
   assert.ok(mobileControls.controlWidths.every((width) => width > 200),
     `mobile controls too narrow: ${JSON.stringify(mobileControls)}`);
   assert.equal(mobileControls.failDisabledBeforeReason, true);
+  const mobileFilter = await browser.page.evaluate("(() => { const rect = document.getElementById('quest-status-filter').getBoundingClientRect(); return { width: rect.width, left: rect.left, right: rect.right }; })()");
+  assert.ok(mobileFilter.width > 200 && mobileFilter.left >= 0 && mobileFilter.right <= 391,
+    `mobile filter overflow: ${JSON.stringify(mobileFilter)}`);
+  await selectFilter(browser.page, 'failed');
+  assert.deepEqual(await browser.page.evaluate("[...document.querySelectorAll('#quest-list li')].map((card) => card.dataset.questId)"),
+    (await getQuests(running.origin)).filter((quest) => quest.status === 'failed').map((quest) => quest.id));
+  await screenshot(browser.page, 'e2e-mobile-filter.png');
+  await selectFilter(browser.page, 'all');
   await selectReason(browser.page, mobileId, 'time_shortage');
   await clickAction(browser.page, mobileId, '실패 기록');
   await waitFor(() => browser.page.evaluate(`${cardExpression(mobileId)}?.querySelector('.quest-state')?.textContent.includes('시간이 부족했어요')`), 'mobile failure record');

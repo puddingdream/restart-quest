@@ -16,6 +16,7 @@ let postCount = 0;
 let transitionPostCount = 0;
 let nextTransitionFailure = '';
 let nextDashboardFailure = '';
+let nextListFailure = false;
 
 function sendJson(response, status, value) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -61,7 +62,13 @@ const server = createServer(async (request, response) => {
     return sendJson(response, 200, dashboardFromQuests());
   }
   if (pathname === '/api/quests') {
-    if (request.method === 'GET') return sendJson(response, 200, { quests });
+    if (request.method === 'GET') {
+      if (nextListFailure) {
+        nextListFailure = false;
+        return sendJson(response, 503, fixture.persistenceError);
+      }
+      return sendJson(response, 200, { quests });
+    }
     if (request.method === 'POST') {
       postCount++;
       if (failNextPost) {
@@ -250,6 +257,7 @@ try {
   await waitFor(() => devtools.evaluate("!document.getElementById('dashboard-content').hidden && !document.getElementById('dashboard-empty').hidden"), 'empty dashboard');
   assert.deepEqual(await devtools.evaluate("[...document.querySelectorAll('#dashboard-counts dd')].map((node) => node.textContent)"), ['0', '0', '0', '0']);
   assert.equal(postCount, 0);
+  assert.equal(await devtools.evaluate("document.getElementById('quest-status-filter').value"), 'all');
 
   await devtools.evaluate("document.getElementById('available-minutes').value = '20'; document.getElementById('energy').value = 'medium'; document.getElementById('quest-form').requestSubmit()");
   const savedId = await waitFor(() => devtools.evaluate("!document.getElementById('result-section').hidden && document.querySelector('#quest-list li')?.dataset.questId"), 'POST result and GET list');
@@ -257,6 +265,9 @@ try {
   assert.equal(quests[0].id, savedId);
   assert.ok(quests[0].estimatedMinutes <= 20);
   await waitFor(() => devtools.evaluate("!document.getElementById('dashboard-content').hidden && document.querySelector('#dashboard-counts dd')?.textContent === '1'"), 'created dashboard');
+  await devtools.evaluate("(() => { const filter = document.getElementById('quest-status-filter'); filter.value = 'failed'; filter.dispatchEvent(new Event('change', { bubbles: true })); })()");
+  assert.equal(await devtools.evaluate("!document.getElementById('empty-state').hidden && document.getElementById('empty-state').textContent.includes('실패 기록이 없습니다.')"), true);
+  await devtools.evaluate("(() => { const filter = document.getElementById('quest-status-filter'); filter.value = 'all'; filter.dispatchEvent(new Event('change', { bubbles: true })); })()");
 
   const screenshotDir = join(root, 'dist', 'verification');
   await mkdir(screenshotDir, { recursive: true });
@@ -323,6 +334,30 @@ try {
   await waitFor(() => devtools.evaluate("[...document.querySelectorAll('#dashboard-counts dd')][3]?.textContent === '3'"), 'redesigned dashboard');
   assert.deepEqual(await devtools.evaluate("[...document.querySelectorAll('#dashboard-counts dd')].map((node) => node.textContent)"), ['3', '1', '3', '3']);
   assert.equal(await devtools.evaluate("document.querySelectorAll('#dashboard-histories > section').length"), 4);
+  const beforeFilter = structuredClone(quests);
+  const dashboardBeforeFilter = dashboardFromQuests();
+  for (const status of ['all', 'pending', 'completed', 'failed']) {
+    await devtools.evaluate(`(() => { const filter = document.getElementById('quest-status-filter');
+      filter.value = ${JSON.stringify(status)}; filter.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    assert.deepEqual(await devtools.evaluate("[...document.querySelectorAll('#quest-list li')].map((card) => card.dataset.questId)"),
+      beforeFilter.filter((quest) => status === 'all' || quest.status === status).map((quest) => quest.id));
+  }
+  await writeFile(join(screenshotDir, 'desktop-filter.png'), Buffer.from((await devtools.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })).data, 'base64'));
+  assert.deepEqual(quests, beforeFilter, 'filter must not write fixture records');
+  assert.deepEqual(dashboardFromQuests(), dashboardBeforeFilter, 'filter must not change dashboard');
+  await devtools.evaluate('window.__filterReloadMarker = true');
+  await devtools.send('Page.reload', { ignoreCache: true });
+  await waitFor(() => devtools.evaluate("window.__filterReloadMarker !== true && document.getElementById('quest-status-filter').value === 'failed' && document.querySelectorAll('#quest-list li').length === 3"), 'failed filter after reload');
+  await devtools.evaluate("localStorage.setItem('restart-quest-status-filter', 'unknown'); window.__filterReloadMarker = true");
+  await devtools.send('Page.reload', { ignoreCache: true });
+  await waitFor(() => devtools.evaluate("window.__filterReloadMarker !== true && document.getElementById('quest-status-filter').value === 'all' && document.querySelectorAll('#quest-list li').length === 7"), 'invalid filter defaults to all');
+  nextListFailure = true;
+  await devtools.evaluate("document.getElementById('retry-button').click()");
+  await waitFor(() => devtools.evaluate("!document.getElementById('list-error').hidden && document.getElementById('empty-state').hidden && !document.getElementById('retry-button').hidden"), 'list error is not an empty result');
+  await devtools.evaluate("document.getElementById('retry-button').click()");
+  await waitFor(() => devtools.evaluate("document.getElementById('list-error').hidden && document.querySelectorAll('#quest-list li').length === 7"), 'list retry after filter test');
+  await devtools.evaluate("(() => { const filter = document.getElementById('quest-status-filter'); filter.value = 'completed'; filter.dispatchEvent(new Event('change', { bubbles: true })); document.querySelector('#dashboard-next a').click(); })()");
+  assert.equal(await devtools.evaluate("document.getElementById('quest-status-filter').value === 'all' && !!document.querySelector('#quest-list li[data-quest-id=' + JSON.stringify(document.querySelector('#dashboard-next a').hash.slice(7)) + ']')"), true);
   nextDashboardFailure = '500';
   await devtools.evaluate("document.getElementById('dashboard-retry').click()");
   await waitFor(() => devtools.evaluate("document.getElementById('dashboard-content').hidden && !document.getElementById('dashboard-error').hidden && !document.getElementById('dashboard-retry').hidden"), 'dashboard 500');
@@ -381,6 +416,14 @@ try {
   const mobile = await devtools.evaluate("({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth, formWidth: document.getElementById('quest-form').getBoundingClientRect().width, buttonWidth: document.getElementById('create-button').getBoundingClientRect().width })");
   assert.ok(mobile.scrollWidth <= mobile.width + 1, `mobile horizontal overflow: ${JSON.stringify(mobile)}`);
   assert.ok(mobile.buttonWidth > 200 && mobile.formWidth > 200, 'mobile controls remain usable');
+  const mobileFilter = await devtools.evaluate("(() => { const control = document.getElementById('quest-status-filter'); const rect = control.getBoundingClientRect(); return { width: rect.width, left: rect.left, right: rect.right }; })()");
+  assert.ok(mobileFilter.width > 200 && mobileFilter.left >= 0 && mobileFilter.right <= 391,
+    `mobile filter overflow: ${JSON.stringify(mobileFilter)}`);
+  await devtools.evaluate("(() => { const filter = document.getElementById('quest-status-filter'); filter.value = 'failed'; filter.dispatchEvent(new Event('change', { bubbles: true })); })()");
+  assert.deepEqual(await devtools.evaluate("[...document.querySelectorAll('#quest-list li')].map((card) => card.dataset.questId)"),
+    quests.filter((quest) => quest.status === 'failed').map((quest) => quest.id));
+  await writeFile(join(screenshotDir, 'mobile-filter.png'), Buffer.from((await devtools.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })).data, 'base64'));
+  await devtools.evaluate("(() => { const filter = document.getElementById('quest-status-filter'); filter.value = 'all'; filter.dispatchEvent(new Event('change', { bubbles: true })); })()");
   const mobileActions = await devtools.evaluate(`(() => {
     const card = ${cardExpression(errorQuest.id)};
     const select = card.querySelector('select').getBoundingClientRect();
