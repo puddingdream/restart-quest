@@ -2,7 +2,7 @@
   "name": "restart-quest-client",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": { "node": ">=22.8.0" },
   "scripts": {
     "test": "node --test --experimental-test-isolation=none test/*.test.js",
     "lint": "node --check app.js && node --check quest-app.js && node --check test/quest-app.test.js && node --check test/browser-smoke.js && node --check test/e2e.js",

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { test } from 'node:test';
 import { createQuestServer } from './app.js';
+import { requestHttp } from './test-http.js';
 
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'restart-quest-test-'));
@@ -28,7 +29,7 @@ async function listen(t, options) {
 }
 
 async function request(base, method, body, headers = {}, path = '/api/quests') {
-  const response = await fetch(`${base}${path}`, {
+  const response = await requestHttp(`${base}${path}`, {
     method,
     headers: body === undefined ? headers : { 'Content-Type': 'application/json', ...headers },
     body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
@@ -125,10 +126,10 @@ test('유효하지 않은 요청과 API 오류는 구조화되고 저장하지 �
   const huge = await request(base, 'POST', { availableMinutes: 5, energy: 'low', padding: 'x'.repeat(17000) });
   assert.equal(huge.status, 413);
   assert.equal(huge.data.error.code, 'PAYLOAD_TOO_LARGE');
-  const method = await fetch(`${base}/api/quests`, { method: 'PUT' });
+  const method = await requestHttp(`${base}/api/quests`, { method: 'PUT' });
   assert.equal(method.status, 405);
   assert.equal((await method.json()).error.code, 'METHOD_NOT_ALLOWED');
-  const missing = await fetch(`${base}/api/missing`);
+  const missing = await requestHttp(`${base}/api/missing`);
   assert.equal(missing.status, 404);
   assert.equal((await missing.json()).error.code, 'NOT_FOUND');
   assert.deepEqual((await request(base, 'GET')).data, { quests: [] });
@@ -192,16 +193,16 @@ test('화면 파일은 같은 origin에서 제공하고 숨김 파일과 API 외
   await writeFile(join(options.publicDir, 'app.js'), 'export const fixture = true;');
   await writeFile(join(options.publicDir, '.private'), 'hidden');
   const { base } = await listen(t, options);
-  const page = await fetch(base);
+  const page = await requestHttp(base);
   assert.equal(page.status, 200);
   assert.equal(page.headers.get('content-type'), 'text/html; charset=utf-8');
   assert.equal(await page.text(), '<main>계약 fixture</main>');
-  const script = await fetch(`${base}/app.js`);
+  const script = await requestHttp(`${base}/app.js`);
   assert.equal(script.status, 200);
   assert.equal(await script.text(), 'export const fixture = true;');
-  assert.equal((await fetch(`${base}/.private`)).status, 404);
-  assert.equal((await fetch(`${base}/missing.html`)).status, 404);
-  assert.equal((await fetch(`${base}/api/quests`)).status, 200);
+  assert.equal((await requestHttp(`${base}/.private`)).status, 404);
+  assert.equal((await requestHttp(`${base}/missing.html`)).status, 404);
+  assert.equal((await requestHttp(`${base}/api/quests`)).status, 200);
 });
 
 test('기본 정적 경로는 저장소 실행 디렉터리의 client/dist다', async (t) => {
@@ -225,7 +226,7 @@ test('기본 정적 경로는 저장소 실행 디렉터리의 client/dist다', 
     ['/app.js', 'export const built = true;'],
     ['/styles.css', 'body { color: black; }'],
   ]) {
-    const response = await fetch(`${base}${path}`);
+    const response = await requestHttp(`${base}${path}`);
     assert.equal(response.status, 200);
     assert.equal(await response.text(), expected);
   }

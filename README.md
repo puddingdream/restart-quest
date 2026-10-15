@@ -6,7 +6,7 @@
 
 ## 준비
 
-- Node.js 22 이상과 npm이 필요합니다.
+- Node.js 22.8.0 이상과 npm이 필요합니다. 서버·클라이언트 테스트는 Node.js 22.8.0부터 제공하는 `--experimental-test-isolation=none` 옵션을 사용합니다.
 - 브라우저 검증(`smoke`, `test:e2e`)에는 Chrome 또는 Chromium이 필요합니다. Windows의 기본 Chrome 설치 경로 또는 Linux의 `chromium` 명령을 사용하며, 다른 위치에 있다면 `CHROME_PATH`로 실행 파일 경로를 지정합니다.
 - 유료 API 키나 외부 서비스는 필요하지 않습니다.
 

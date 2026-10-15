@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import { createQuestServer } from './app.js';
 import { projectDashboard } from './dashboard.js';
 import { createQuestStore } from './store.js';
+import { requestHttp } from './test-http.js';
 
 const ids = {
   A: '11111111-1111-4111-8111-111111111111',
@@ -56,13 +57,13 @@ async function listen(t, options) {
 }
 
 async function getDashboard(base) {
-  const response = await fetch(`${base}/api/dashboard`);
+  const response = await requestHttp(`${base}/api/dashboard`);
   return { status: response.status, type: response.headers.get('content-type'),
     cache: response.headers.get('cache-control'), body: await response.json() };
 }
 
 async function post(base, path, body) {
-  const response = await fetch(`${base}${path}`, {
+  const response = await requestHttp(`${base}${path}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
@@ -81,7 +82,7 @@ test('빈 저장소의 HTTP 대시보드는 0건과 생성 행동이며 조회�
     histories: [], nextAction: { kind: 'create', questId: null, rootQuestId: null },
   });
   await assert.rejects(readFile(options.dataFile, 'utf8'), { code: 'ENOENT' });
-  const invalidMethod = await fetch(`${base}/api/dashboard`, { method: 'POST' });
+  const invalidMethod = await requestHttp(`${base}/api/dashboard`, { method: 'POST' });
   assert.equal(invalidMethod.status, 405);
   assert.equal(invalidMethod.headers.get('allow'), 'GET');
   assert.deepEqual(await invalidMethod.json(), { error: {
