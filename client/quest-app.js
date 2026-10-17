@@ -193,6 +193,7 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
   let dashboardRequest = 0;
   let questsFromServer = null;
   let selectedFilter = 'all';
+  let pendingDashboardTarget = null;
   const pendingQuestIds = new Set();
 
   try {
@@ -254,7 +255,11 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
     const link = note('a', label, 'action-button dashboard-link');
     link.href = id ? `#quest-${id}` : '#quest-form';
     if (id) link.addEventListener('click', () => {
-      if (!findCard(id) && questsFromServer?.some((quest) => quest.id === id)) setFilter('all');
+      if (!findCard(id)) {
+        pendingDashboardTarget = id;
+        setFilter('all');
+        if (questsFromServer) focusDashboardTarget();
+      }
     });
     return link;
   }
@@ -505,6 +510,16 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
     return Array.from(list.children).find((card) => card.dataset.questId === id);
   }
 
+  function focusDashboardTarget() {
+    const card = findCard(pendingDashboardTarget);
+    if (card) {
+      card.tabIndex = -1;
+      card.focus();
+      card.scrollIntoView?.();
+    }
+    pendingDashboardTarget = null;
+  }
+
   async function openHistory(id) {
     const card = findCard(id);
     if (card) await card.showHistory();
@@ -524,6 +539,7 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
       if (request !== listRequest) return;
       questsFromServer = quests;
       showFilteredList();
+      if (pendingDashboardTarget) focusDashboardTarget();
       await dashboardRefresh;
       return true;
     } catch (error) {
@@ -578,7 +594,10 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
   });
 
   retryButton.addEventListener('click', loadList);
-  statusFilter.addEventListener('change', () => setFilter(statusFilter.value));
+  statusFilter.addEventListener('change', () => {
+    pendingDashboardTarget = null;
+    setFilter(statusFilter.value);
+  });
   dashboard?.retry.addEventListener('click', loadDashboard);
   loadList();
   return { loadList, loadDashboard };

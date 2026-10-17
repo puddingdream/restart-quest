@@ -239,6 +239,66 @@ test('상태 전이 뒤 목록 재조회에도 필터를 적용하고 대시보�
   assert.equal(calls.filter(({ url }) => url === '/api/quests').length, 2);
 });
 
+for (const { firstListFails, userChangesFilter } of [
+  { firstListFails: false, userChangesFilter: false },
+  { firstListFails: true, userChangesFilter: false },
+  { firstListFails: false, userChangesFilter: true },
+]) {
+  test(userChangesFilter
+    ? '목록 GET 중 대시보드 링크를 눌러도 이후 사용자 필터 변경을 존중한다'
+    : `목록 GET보다 먼저 누른 대시보드 링크는 ${firstListFails ? '읽기 오류 재시도 뒤에도' : '응답 뒤에'} 숨은 카드를 연다`, async () => {
+    const storage = memoryStorage({ 'restart-quest-status-filter': 'completed' });
+    const document = makeDashboardDocument();
+    document.defaultView = { localStorage: storage };
+    const quests = mixedQuests();
+    const dashboard = {
+      counts: { pending: 1, completed: 1, failed: 1, redesigned: 0 },
+      histories: quests.map((quest) => ({ rootQuestId: quest.id, quests: [quest] })),
+      nextAction: { kind: 'resume', questId: 'pending-id', rootQuestId: 'pending-id' },
+    };
+    let finishFirstList;
+    let listCalls = 0;
+    const calls = [];
+    const fetchRequest = (url, options) => {
+      calls.push({ url, options });
+      if (url === '/api/dashboard') return Promise.resolve(Response.json(dashboard));
+      assert.equal(url, '/api/quests');
+      if (++listCalls === 1) return new Promise((resolve) => { finishFirstList = resolve; });
+      return Promise.resolve(Response.json({ quests }));
+    };
+    mountQuestApp(document, fetchRequest);
+    await nextTurn();
+    assert.equal(document.nodes['quest-status-filter'].value, 'completed');
+    await document.nodes['dashboard-next'].children[2].emit('click');
+    assert.equal(document.nodes['quest-status-filter'].value, 'all');
+    assert.equal(storage.getItem('restart-quest-status-filter'), 'all');
+    assert.equal(listCalls, 1, '링크 클릭은 추가 API 요청을 만들지 않는다');
+    if (userChangesFilter) {
+      document.nodes['quest-status-filter'].value = 'failed';
+      await document.nodes['quest-status-filter'].emit('change');
+    }
+    finishFirstList(firstListFails
+      ? Response.json(fixture.persistenceError, { status: 503 })
+      : Response.json({ quests }));
+    await nextTurn();
+    if (firstListFails) {
+      assert.equal(document.nodes['list-error'].hidden, false);
+      await document.nodes['retry-button'].emit('click');
+    }
+    assert.deepEqual(document.nodes['quest-list'].children.map((item) => item.dataset.questId),
+      userChangesFilter ? ['failed-id'] : quests.map((quest) => quest.id));
+    if (userChangesFilter) {
+      assert.equal(document.nodes['quest-status-filter'].value, 'failed');
+      assert.equal(storage.getItem('restart-quest-status-filter'), 'failed');
+    } else {
+      assert.equal(document.nodes['quest-list'].children.find((item) => item.dataset.questId === 'pending-id').focused, true);
+    }
+    assert.equal(document.nodes['dashboard-counts'].children[1].textContent, '1');
+    assert.equal(calls.filter(({ options }) => options?.method === 'POST').length, 0);
+    assert.equal(listCalls, firstListFails ? 2 : 1);
+  });
+}
+
 test('생성·실패·재설계 뒤에도 선택한 상태만 새 전체 GET에서 표시한다', async () => {
   const document = makeDocument();
   const failQuest = failed('time_shortage');
