@@ -433,15 +433,22 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
         }
         if (!cause.network && cause.status !== 409) await loadDashboard();
         const current = findCard(quest.id);
-        if (cause.network && current &&
-            (current.quest.status !== quest.status ||
-              (action === 'redesign' && questsFromServer?.some((entry) => entry.parentQuestId === quest.id)))) {
-          current.actionError.hidden = true;
-          current.actionStatus.textContent = '저장된 상태를 다시 확인했습니다.';
+        const saved = questsFromServer?.find((entry) => entry.id === quest.id);
+        const confirmed = action === 'redesign'
+          ? questsFromServer?.some((entry) => entry.parentQuestId === quest.id)
+          : saved?.status === (action === 'complete' ? 'completed' : 'failed');
+        if (cause.network && confirmed) {
+          if (current) {
+            current.actionError.hidden = true;
+            current.actionStatus.textContent = '저장된 상태를 다시 확인했습니다.';
+          } else {
+            const label = action === 'complete' ? '완료' : action === 'fail' ? '실패' : '더 작은 행동';
+            listStatus.textContent += ` · ${label} 기록을 확인했습니다. 현재 필터에서는 대상 카드가 보이지 않습니다.`;
+          }
           return;
         }
         (current ?? item).setBusy(false, '확정 결과를 확인하지 못했습니다.');
-        const alert = current?.actionError ?? error;
+        const alert = current?.actionError ?? listError;
         alert.textContent = cause.message;
         alert.hidden = false;
         if (cause.fields?.failureReason) {
@@ -456,6 +463,7 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
         }
         const retry = current?.refreshButton;
         if (retry) retry.hidden = false;
+        else retryButton.hidden = false;
       }
     }
     if (quest.status === 'pending') {
