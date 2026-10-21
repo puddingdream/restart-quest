@@ -36,6 +36,7 @@ function validDashboard(body) {
   const seen = new Set();
   const totals = { pending: 0, completed: 0, failed: 0, redesigned: 0 };
   let selected;
+  const tails = [];
   for (const history of body.histories) {
     if (typeof history?.rootQuestId !== 'string' || !Array.isArray(history.quests) ||
         history.quests.length === 0 || history.quests[0]?.id !== history.rootQuestId) return false;
@@ -51,10 +52,12 @@ function validDashboard(body) {
       if (quest.parentQuestId !== null) totals.redesigned++;
     }
     const tail = history.quests.at(-1);
+    tails.push(tail);
     if (action.questId === tail.id && action.rootQuestId === history.rootQuestId) selected = tail;
   }
   if (Object.keys(totals).some((key) => totals[key] !== counts[key])) return false;
-  if (action.kind === 'create') return action.questId === null && action.rootQuestId === null;
+  if (action.kind === 'create') return action.questId === null && action.rootQuestId === null &&
+    tails.every((tail) => tail.status === 'completed');
   return selected && ((action.kind === 'resume' && selected.status === 'pending') ||
     (action.kind === 'redesign' && selected.status === 'failed' && selected.estimatedMinutes > 1) ||
     (action.kind === 'rest_or_create' && selected.status === 'failed' && selected.estimatedMinutes === 1));
@@ -254,7 +257,8 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
     const link = note('a', label, 'action-button dashboard-link');
     link.href = id ? `#quest-${id}` : '#quest-form';
     if (id) link.addEventListener('click', () => {
-      if (!findCard(id) && questsFromServer?.some((quest) => quest.id === id)) setFilter('all');
+      // The dashboard may finish before the list; keep the target visible when that GET arrives.
+      if (!findCard(id)) setFilter('all');
     });
     return link;
   }
@@ -356,6 +360,7 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
     error.setAttribute('role', 'alert');
     const status = note('p', '', 'quest-action-status');
     status.setAttribute('role', 'status');
+    if (pendingQuestIds.has(quest.id)) status.textContent = '요청 결과를 확인하는 중입니다.';
     const historyBox = document.createElement('div');
     historyBox.className = 'quest-history';
     historyBox.hidden = true;
@@ -380,6 +385,7 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
       if (reasonInput) reasonInput.disabled = busy;
       status.textContent = text;
     }
+    item.setBusy = setBusy;
     async function showHistory() {
       historyBox.hidden = true;
       status.textContent = '이력을 불러오는 중입니다.';
@@ -429,12 +435,12 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
         const current = findCard(quest.id);
         if (cause.network && current &&
             (current.quest.status !== quest.status ||
-             (action === 'redesign' && Array.from(list.children).some((card) => card.quest.parentQuestId === quest.id)))) {
+              (action === 'redesign' && questsFromServer?.some((entry) => entry.parentQuestId === quest.id)))) {
           current.actionError.hidden = true;
           current.actionStatus.textContent = '저장된 상태를 다시 확인했습니다.';
           return;
         }
-        if (current === item) setBusy(false, '확정 결과를 확인하지 못했습니다.');
+        (current ?? item).setBusy(false, '확정 결과를 확인하지 못했습니다.');
         const alert = current?.actionError ?? error;
         alert.textContent = cause.message;
         alert.hidden = false;
@@ -457,6 +463,7 @@ export function mountQuestApp(document, fetchRequest, requestTimeoutMs) {
       const reasonLabel = note('label', '실패 이유 선택');
       const reason = document.createElement('select');
       reasonInput = reason;
+      reason.disabled = pendingQuestIds.has(quest.id);
       reason.id = `failure-reason-${quest.id}`;
       reasonLabel.htmlFor = reason.id;
       reason.setAttribute('aria-describedby', `failure-error-${quest.id}`);

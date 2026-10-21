@@ -164,6 +164,38 @@ test('손상되거나 지원하지 않는 저장 파일은 덮어쓰지 않고 �
   }
 });
 
+test('스냅샷은 실재하는 정규형 UTC 시각만 복원한다', async (t) => {
+  const options = await fixture(t);
+  await mkdir(join(options.directory, 'data'));
+  const id = randomUUID();
+  const quest = { id, rootQuestId: id, parentQuestId: null,
+    createdAt: '2024-02-29T23:59:59.999Z', availableMinutes: 5, energy: 'low',
+    title: '행동', description: '행동을 한다.', estimatedMinutes: 5,
+    status: 'pending', failureReason: null, completedAt: null, failedAt: null };
+  const snapshot = (entry) => JSON.stringify({ schemaVersion: 1, quests: [entry] });
+  await writeFile(options.dataFile, snapshot(quest));
+  assert.ok(await createQuestServer(options), '윤년의 실제 UTC 시각은 유효하다');
+  const completedQuest = { ...quest, status: 'completed', completedAt: '2024-03-01T00:00:00.000Z' };
+  const failedQuest = { ...quest, status: 'failed', failureReason: 'time_shortage',
+    failedAt: '2024-03-01T00:00:00.000Z' };
+  for (const entry of [completedQuest, failedQuest]) {
+    await writeFile(options.dataFile, snapshot(entry));
+    assert.ok(await createQuestServer(options), '완료·실패의 실제 UTC 시각은 유효하다');
+  }
+  for (const [entry, field, timestamp] of [
+    [quest, 'createdAt', '2026-99-99T99:99:99.999Z'],
+    [quest, 'createdAt', '2026-02-29T00:00:00.000Z'],
+    [quest, 'createdAt', '2024-02-29T24:00:00.000Z'],
+    [completedQuest, 'completedAt', '2024-02-30T00:00:00.000Z'],
+    [failedQuest, 'failedAt', '2024-13-01T00:00:00.000Z'],
+  ]) {
+    const content = snapshot({ ...entry, [field]: timestamp });
+    await writeFile(options.dataFile, content);
+    await assert.rejects(createQuestServer(options), /Invalid or unsupported quest snapshot/);
+    assert.equal(await readFile(options.dataFile, 'utf8'), content, '손상 파일은 자동 변경하지 않는다');
+  }
+});
+
 test('파일 교체 실패는 503이며 메모리 목록을 변경하지 않는다', async (t) => {
   const options = await fixture(t);
   const { base } = await listen(t, options);

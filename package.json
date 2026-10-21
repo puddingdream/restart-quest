@@ -5,6 +5,6 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "start": "node server/index.js",
-    "test": "node --test --experimental-test-isolation=none server/*.test.js"
+    "test": "node --input-type=module -e \"await import('./server/app.test.js'); await import('./server/dashboard.test.js')\""
   }
 }

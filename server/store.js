@@ -7,9 +7,15 @@ import { projectDashboard } from './dashboard.js';
 const uuidPattern = /^[\da-f]{8}-[\da-f]{4}-[1-8][\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i;
 const timestampPattern = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
 
+function validTimestamp(value) {
+  if (typeof value !== 'string' || !timestampPattern.test(value)) return false;
+  const time = Date.parse(value);
+  return Number.isFinite(time) && new Date(time).toISOString() === value;
+}
+
 function validQuest(quest) {
   return quest && typeof quest === 'object' && !Array.isArray(quest) &&
-    uuidPattern.test(quest.id) && timestampPattern.test(quest.createdAt) &&
+    uuidPattern.test(quest.id) && validTimestamp(quest.createdAt) &&
     Number.isInteger(quest.availableMinutes) && quest.availableMinutes >= 5 && quest.availableMinutes <= 120 &&
     ['low', 'medium', 'high'].includes(quest.energy) &&
     typeof quest.title === 'string' && quest.title.length > 0 &&
@@ -18,8 +24,8 @@ function validQuest(quest) {
     quest.estimatedMinutes <= quest.availableMinutes &&
     ['pending', 'completed', 'failed'].includes(quest.status) &&
     (quest.failureReason === null || failureReasons.has(quest.failureReason)) &&
-    (quest.completedAt === null || timestampPattern.test(quest.completedAt)) &&
-    (quest.failedAt === null || timestampPattern.test(quest.failedAt)) &&
+    (quest.completedAt === null || validTimestamp(quest.completedAt)) &&
+    (quest.failedAt === null || validTimestamp(quest.failedAt)) &&
     (quest.parentQuestId === null || uuidPattern.test(quest.parentQuestId)) &&
     uuidPattern.test(quest.rootQuestId) &&
     (quest.status === 'pending'

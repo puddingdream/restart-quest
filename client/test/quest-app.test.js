@@ -239,6 +239,32 @@ test('상태 전이 뒤 목록 재조회에도 필터를 적용하고 대시보�
   assert.equal(calls.filter(({ url }) => url === '/api/quests').length, 2);
 });
 
+test('목록 GET이 늦어도 대시보드 링크가 복원 필터를 풀고 대상 카드를 표시한다', async () => {
+  const document = makeDashboardDocument();
+  const storage = memoryStorage({ 'restart-quest-status-filter': 'completed' });
+  document.defaultView = { localStorage: storage };
+  const quests = mixedQuests();
+  const dashboard = { counts: { pending: 1, completed: 1, failed: 1, redesigned: 0 },
+    histories: quests.map((quest) => ({ rootQuestId: quest.id, quests: [quest] })),
+    nextAction: { kind: 'resume', questId: 'pending-id', rootQuestId: 'pending-id' } };
+  let finishList;
+  const calls = [];
+  mountQuestApp(document, (url, options) => {
+    calls.push({ url, options });
+    if (url === '/api/dashboard') return Promise.resolve(Response.json(dashboard));
+    return new Promise((resolve) => { finishList = resolve; });
+  });
+  await nextTurn();
+  assert.equal(document.nodes['quest-status-filter'].value, 'completed');
+  await document.nodes['dashboard-next'].children[2].emit('click');
+  assert.equal(document.nodes['quest-status-filter'].value, 'all');
+  finishList(Response.json({ quests }));
+  await nextTurn();
+  assert.ok(document.nodes['quest-list'].children.some((item) => item.dataset.questId === 'pending-id'));
+  assert.equal(storage.getItem('restart-quest-status-filter'), 'all');
+  assert.deepEqual(calls.map(({ url }) => url), ['/api/dashboard', '/api/quests']);
+});
+
 test('생성·실패·재설계 뒤에도 선택한 상태만 새 전체 GET에서 표시한다', async () => {
   const document = makeDocument();
   const failQuest = failed('time_shortage');
@@ -359,6 +385,26 @@ test('대시보드 빈 상태와 복합 체인은 서버 fixture의 수치·순�
   assert.match(document.nodes['dashboard-next'].children[1].textContent, /1분짜리 행동/);
   assert.equal(document.nodes['dashboard-next'].children[2].href, '#quest-form');
   assert.equal(calls.filter(({ url }) => url === '/api/dashboard').length, 3);
+});
+
+test('대시보드 create는 모든 끝 행동이 완료됐을 때만 수용한다', async () => {
+  const pending = mixedQuests()[1];
+  const failedQuest = mixedQuests()[0];
+  for (const quest of [pending, failedQuest]) {
+    const counts = { pending: Number(quest.status === 'pending'),
+      completed: 0, failed: Number(quest.status === 'failed'), redesigned: 0 };
+    const response = { counts, histories: [{ rootQuestId: quest.id, quests: [quest] }],
+      nextAction: { kind: 'create', questId: null, rootQuestId: null } };
+    await assert.rejects(createQuestApi(queuedFetch(body(response)).fetchRequest).dashboard(),
+      /대시보드 응답의 형식/);
+  }
+  const done = completed();
+  const valid = { counts: { pending: 0, completed: 1, failed: 0, redesigned: 0 },
+    histories: [{ rootQuestId: done.id, quests: [done] }],
+    nextAction: { kind: 'create', questId: null, rootQuestId: null } };
+  assert.deepEqual(await createQuestApi(queuedFetch(body(valid)).fetchRequest).dashboard(), valid);
+  assert.deepEqual(await createQuestApi(queuedFetch(body(fixture.dashboardEmpty)).fetchRequest).dashboard(),
+    fixture.dashboardEmpty);
 });
 
 test('대시보드 500·단절·형식 오류는 이전 성공을 숨기고 GET 재시도에서만 복구한다', async () => {
@@ -655,6 +701,53 @@ test('503은 허위 성공 없이 재조회 동작을 제공하고 통신 단절
   assert.deepEqual(calls.map(({ options }) => options?.method ?? 'GET'), ['GET', 'POST', 'POST', 'GET']);
   assert.equal(card(document).quest.status, 'completed', '확정 결과는 재조회 후에만 표시한다');
   assert.equal(card(document).actionError.hidden, true);
+});
+
+test('POST 503 중 필터로 다시 그린 카드도 busy를 해제하고 재시도를 허용한다', async () => {
+  const document = makeDocument();
+  let finishPost;
+  const calls = [];
+  const fetchRequest = (url, options) => {
+    calls.push({ url, options });
+    if (options?.method === 'POST') return new Promise((resolve) => { finishPost = resolve; });
+    return Promise.resolve(Response.json({ quests: [fixture.quest] }));
+  };
+  mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  const completion = findNode(card(document), '완료 기록').emit('click');
+  const filter = document.nodes['quest-status-filter'];
+  filter.value = 'completed';
+  await filter.emit('change');
+  filter.value = 'all';
+  await filter.emit('change');
+  assert.equal(findNode(card(document), '완료 기록').disabled, true);
+  assert.equal(card(document).reasonSelect.disabled, true);
+  finishPost(Response.json(fixture.persistenceError, { status: 503 }));
+  await completion;
+  assert.equal(findNode(card(document), '완료 기록').disabled, false);
+  assert.equal(card(document).reasonSelect.disabled, false);
+  assert.equal(findNode(card(document), '이력 보기').disabled, false);
+  assert.equal(card(document).refreshButton.disabled, false);
+  assert.equal(card(document).refreshButton.hidden, false);
+  assert.equal(calls.filter(({ options }) => options?.method === 'POST').length, 1);
+});
+
+test('필터 밖 자식도 POST 응답 유실 뒤 전체 GET에서 재설계 확정으로 인정한다', async () => {
+  const document = makeDocument();
+  const parent = failed('time_shortage');
+  const alternative = child('time_shortage');
+  const { fetchRequest, calls } = queuedFetch(body({ quests: [parent] }),
+    new Error('POST response lost'), body({ quests: [alternative, parent] }));
+  mountQuestApp(document, fetchRequest);
+  await nextTurn();
+  document.nodes['quest-status-filter'].value = 'failed';
+  await document.nodes['quest-status-filter'].emit('change');
+  await findNode(card(document), '더 작은 행동 제안').emit('click');
+  assert.deepEqual(document.nodes['quest-list'].children.map((item) => item.quest.id), [parent.id]);
+  assert.equal(card(document).actionError.hidden, true);
+  assert.match(card(document).actionStatus.textContent, /저장된 상태를 다시 확인/);
+  assert.equal(findNode(card(document), '더 작은 행동 제안'), undefined);
+  assert.deepEqual(calls.map(({ options }) => options?.method ?? 'GET'), ['GET', 'POST', 'GET']);
 });
 
 test('POST 단절 뒤 GET도 실패하면 목록 오류와 재시도를 표시하고 POST를 반복하지 않는다', async () => {
