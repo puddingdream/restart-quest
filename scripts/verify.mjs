@@ -19,6 +19,57 @@ let runDirectory;
 let temporaryDirectory;
 let sha = 'unavailable';
 
+// Independent expectations from docs/IMPLEMENTATION.md. A rationale-only
+// change must never satisfy the reason-specific action checks.
+const expectedRedesigns = {
+  time: [
+    ['직무명 첫 글자 적기', '떠오르는 직무명의 첫 글자 하나만 적고 멈추세요.'],
+    ['직무 키워드 1개만 적기', '자료 조사나 이유 없이 떠오르는 직무명 하나만 적으세요.'],
+    ['직무 키워드 2개만 적기', '이유를 쓰거나 자료를 찾지 말고, 떠오르는 직무명 두 개만 적으세요.']
+  ],
+  energy: [
+    ['예시 직무 하나 표시하기', '기획·디자인 중 덜 부담스러운 것 하나만 동그라미 치거나 적으세요.'],
+    ['예시 직무에서 1개 고르기', '기획·디자인·개발 중 지금 덜 부담스러운 직무 하나만 골라 적으세요.'],
+    ['예시 직무에서 2개 고르기', '새로 찾지 말고 기획·디자인·개발 중 부담 없는 직무 두 개만 골라 적으세요.']
+  ],
+  too_hard: [
+    ['업무 동사 첫 글자 적기', '쓰기·만들기 중 해보고 싶은 동작의 첫 글자 하나만 적으세요.'],
+    ['해보고 싶은 업무 동사 1개 적기', '직무명을 정하지 말고 쓰기·만들기·정리하기 중 해보고 싶은 동작 하나만 적으세요.'],
+    ['해보고 싶은 업무 동사 2개 적기', '직무명을 결정하지 말고, 쓰기·만들기·정리하기처럼 해보고 싶은 동작 두 개만 적으세요.']
+  ],
+  unclear: [
+    ['일의 첫 글자 한 칸 채우기', '‘해보고 싶은 일: ___’의 빈칸에 떠오르는 업무 동사의 첫 글자 하나만 넣으세요.'],
+    ['하고 싶은 일 한 칸 채우기', '‘해보고 싶은 일: ___’의 빈칸에 업무 동사 하나만 넣으세요.'],
+    ['하고 싶은 일 두 칸 채우기', '‘해보고 싶은 일: ___, ___’의 두 빈칸에 업무 동사 하나씩 넣으세요.']
+  ],
+  other: [
+    ['관심 직무 키워드 1개 적기', '지금 떠오르는 키워드 한 단어만 적으세요.'],
+    ['관심 직무 키워드 1개와 이유 적기', '키워드 1개와 관심이 가는 이유 한 줄을 적으세요.'],
+    ['관심 직무 키워드 2개와 이유 적기', '떠오르는 직무 키워드 2개와 그중 하나를 고른 이유 한 줄을 적으세요.']
+  ]
+};
+
+function assertSuggestedAction(suggestion, parent, reasonCode) {
+  const level = parent.level - 1;
+  const [title, instruction] = expectedRedesigns[reasonCode][level];
+  assert.equal(suggestion.parentId, parent.id);
+  assert.equal(suggestion.reasonCode, reasonCode);
+  assert.equal(suggestion.level, level);
+  assert.equal(suggestion.minutes, [2, 5, 10][level]);
+  assert.ok(suggestion.minutes < parent.minutes);
+  assert.equal(suggestion.title, title);
+  assert.equal(suggestion.instruction, instruction);
+}
+
+function assertConfirmedAction(child, parent, suggestion) {
+  assert.equal(child.parentId, parent.id);
+  assert.equal(child.rootId, parent.rootId);
+  assert.equal(child.redesignReason, suggestion.reasonCode);
+  for (const key of ['level', 'minutes', 'title', 'instruction']) {
+    assert.equal(child[key], suggestion[key], `확정된 후손의 ${key}`);
+  }
+}
+
 function options(argv) {
   const values = new Map();
   for (const item of argv) {
@@ -183,23 +234,17 @@ async function httpFlow(base, dataFile) {
   const failed = await api(base, `/api/quests/${parentId}/fail`, { reasonCode: 'time', reasonNote: '  회의가 길어짐  ' });
   assert.equal(failed.status, 200);
   assert.deepEqual(failed.body.quest.failureReason, { code: 'time', note: '회의가 길어짐' });
-  assert.equal(failed.body.suggestion.parentId, parentId);
-  assert.equal(failed.body.suggestion.reasonCode, 'time');
-  assert.ok(failed.body.suggestion.minutes < parent.body.quest.minutes);
+  assertSuggestedAction(failed.body.suggestion, parent.body.quest, 'time');
   await expectError(base, `/api/quests/${parentId}/fail`, { reasonCode: 'energy' }, 409, 'INVALID_STATE');
   await expectError(base, `/api/quests/${parentId}/complete`, {}, 409, 'INVALID_STATE');
   const suggested = await dashboard(base);
-  assert.ok(suggested.suggestions.some((item) => item.parentId === parentId));
+  assert.deepEqual(suggested.suggestions.find((item) => item.parentId === parentId), failed.body.suggestion);
   assert.equal(suggested.summary.total, 2);
   await assertStored(dataFile, suggested);
   const redesigned = await api(base, `/api/quests/${parentId}/redesign`, {});
   assert.equal(redesigned.status, 201);
   const child = redesigned.body.quest;
-  assert.equal(child.parentId, parentId);
-  assert.equal(child.rootId, parent.body.quest.rootId);
-  assert.equal(child.redesignReason, 'time');
-  assert.equal(child.level, parent.body.quest.level - 1);
-  assert.ok(child.minutes < parent.body.quest.minutes);
+  assertConfirmedAction(child, parent.body.quest, failed.body.suggestion);
   assert.equal(redesigned.body.parentQuest.status, 'failed');
   await expectError(base, `/api/quests/${parentId}/redesign`, {}, 409, 'ALREADY_REDESIGNED');
   assert.equal((await api(base, `/api/quests/${child.id}/complete`, {})).status, 200);
@@ -226,6 +271,54 @@ async function httpFlow(base, dataFile) {
   return current;
 }
 
+async function reasonMatrixFlow(base, dataFile) {
+  const reasons = Object.keys(expectedRedesigns);
+  const inputs = [
+    { body: { availableMinutes: 20, currentState: 'ready' }, level: 3 },
+    { body: { availableMinutes: 10, currentState: 'ready' }, level: 2 },
+    { body: { availableMinutes: 5, currentState: 'overwhelmed' }, level: 1 }
+  ];
+  const confirmed = [];
+  for (const input of inputs) {
+    const titles = new Set();
+    const instructions = new Set();
+    for (const reasonCode of reasons) {
+      const created = await api(base, '/api/quests', input.body);
+      assert.equal(created.status, 201);
+      const parent = created.body.quest;
+      assert.equal(parent.level, input.level);
+      const failed = await api(base, `/api/quests/${parent.id}/fail`, { reasonCode });
+      assert.equal(failed.status, 200);
+      assert.equal(failed.body.quest.failureReason.code, reasonCode);
+      const suggestion = failed.body.suggestion;
+      assertSuggestedAction(suggestion, parent, reasonCode);
+      titles.add(suggestion.title);
+      instructions.add(suggestion.instruction);
+      const beforeConfirmation = await dashboard(base);
+      assert.deepEqual(beforeConfirmation.suggestions.find((item) => item.parentId === parent.id), suggestion);
+      const redesigned = await api(base, `/api/quests/${parent.id}/redesign`, {});
+      assert.equal(redesigned.status, 201);
+      assertConfirmedAction(redesigned.body.quest, parent, suggestion);
+      assert.equal(redesigned.body.parentQuest.status, 'failed');
+      confirmed.push(redesigned.body.quest);
+      const afterConfirmation = await dashboard(base);
+      assert.deepEqual(afterConfirmation.quests.find((item) => item.id === redesigned.body.quest.id), redesigned.body.quest);
+      assert.equal(afterConfirmation.suggestions.some((item) => item.parentId === parent.id), false);
+      await assertStored(dataFile, afterConfirmation);
+    }
+    assert.equal(titles.size, reasons.length, `level ${input.level}: 이유별 제목`);
+    assert.equal(instructions.size, reasons.length, `level ${input.level}: 이유별 지시문`);
+  }
+  const current = await dashboard(base);
+  assert.equal(confirmed.length, inputs.length * reasons.length);
+  for (const child of confirmed) {
+    assert.deepEqual(current.quests.find((item) => item.id === child.id), child);
+    assert.deepEqual(current.nextActions.find((item) => item.id === child.id), child);
+  }
+  await assertStored(dataFile, current);
+  return current;
+}
+
 async function screenshot(page, name) {
   const path = join(runDirectory, `${name}.png`);
   await page.screenshot({ path, fullPage: true });
@@ -243,6 +336,20 @@ async function waitSummary(page, key, value) {
 async function assertNoOverflow(page) {
   const size = await page.evaluate(() => ({ width: window.innerWidth, scroll: document.documentElement.scrollWidth }));
   assert.ok(size.scroll <= size.width, `모바일 가로 넘침: ${size.scroll}px > ${size.width}px`);
+}
+
+async function assertRenderedSuggestion(page, suggestion) {
+  const panel = page.locator(`#suggestion-${suggestion.parentId}`);
+  await panel.waitFor();
+  assert.equal(await panel.locator('h4').textContent(), `${suggestion.title} · ${suggestion.minutes}분`);
+  assert.equal(await panel.locator('p').nth(1).textContent(), suggestion.instruction);
+}
+
+async function assertRenderedQuest(page, selector, quest) {
+  const card = page.locator(selector);
+  await card.waitFor();
+  assert.equal(await card.locator('h3').textContent(), quest.title);
+  assert.equal(await card.locator('.quest-instruction').textContent(), quest.instruction);
 }
 
 async function browserFlow(base, width, name) {
@@ -272,43 +379,70 @@ async function browserFlow(base, width, name) {
     await waitSummary(page, 'Completed', current.summary.completed + 1);
     assert.match(await page.locator(`#history-${doneQuest.id}`).textContent(), /완료한 시간/);
 
-    current = await dashboard(base);
-    known = new Set(current.quests.map((quest) => quest.id));
-    await page.locator('#availableMinutes').fill('10');
-    await page.locator('#currentState').selectOption('low_energy');
-    await page.locator('#createQuestForm button[type="submit"]').click();
-    await waitSummary(page, 'Total', current.summary.total + 1);
-    current = await dashboard(base);
-    const parent = current.quests.find((quest) => !known.has(quest.id));
-    assert.ok(parent && parent.status === 'pending');
-    await page.locator(`#action-${parent.id} .card-actions .outline-button`).click();
-    await page.locator(`#reason-${parent.id}`).selectOption('unclear');
-    await page.locator(`#note-${parent.id}`).fill('다음 행동이 모호했어요');
-    await page.locator(`#failure-${parent.id} button[type="submit"]`).click();
-    await waitSummary(page, 'Failed', current.summary.failed + 1);
-    const suggestion = page.locator(`#suggestion-${parent.id}`);
-    await suggestion.waitFor();
-    assert.match(await suggestion.textContent(), /할 일을 구체적인 한 단계로 좁혔어요/);
-    assert.match(await page.locator(`#history-${parent.id}`).textContent(), /다음 행동이 모호했어요/);
-    if (width === 375) await assertNoOverflow(page);
-    await screenshot(page, `${name}-suggestion`);
+    const examples = [];
+    const titles = new Set();
+    const instructions = new Set();
+    for (const { reasonCode, note } of [
+      { reasonCode: 'unclear', note: '다음 행동이 모호했어요' },
+      { reasonCode: 'time', note: '시간이 모자랐어요' }
+    ]) {
+      current = await dashboard(base);
+      known = new Set(current.quests.map((quest) => quest.id));
+      await page.locator('#availableMinutes').fill('10');
+      await page.locator('#currentState').selectOption('low_energy');
+      await page.locator('#createQuestForm button[type="submit"]').click();
+      await waitSummary(page, 'Total', current.summary.total + 1);
+      current = await dashboard(base);
+      const parent = current.quests.find((quest) => !known.has(quest.id));
+      assert.ok(parent && parent.status === 'pending');
+      assert.equal(parent.level, 2);
+      await page.locator(`#action-${parent.id} .card-actions .outline-button`).click();
+      await page.locator(`#reason-${parent.id}`).selectOption(reasonCode);
+      await page.locator(`#note-${parent.id}`).fill(note);
+      await page.locator(`#failure-${parent.id} button[type="submit"]`).click();
+      await waitSummary(page, 'Failed', current.summary.failed + 1);
+      current = await dashboard(base);
+      const suggestion = current.suggestions.find((item) => item.parentId === parent.id);
+      assert.ok(suggestion);
+      assertSuggestedAction(suggestion, parent, reasonCode);
+      titles.add(suggestion.title);
+      instructions.add(suggestion.instruction);
+      await assertRenderedSuggestion(page, suggestion);
+      assert.match(
+        await page.locator(`#suggestion-${parent.id}`).textContent(),
+        reasonCode === 'unclear' ? /할 일을 구체적인 한 단계로 좁혔어요/ : /필요 시간을 줄였어요/
+      );
+      assert.match(await page.locator(`#history-${parent.id}`).textContent(), new RegExp(note));
+      if (width === 375) await assertNoOverflow(page);
+      await screenshot(page, `${name}-${reasonCode}-suggestion`);
 
-    current = await dashboard(base);
-    assert.ok(current.suggestions.some((item) => item.parentId === parent.id));
-    await suggestion.locator('button').click();
-    await waitSummary(page, 'Redesigned', current.summary.redesigned + 1);
-    const afterRedesign = await dashboard(base);
-    const child = afterRedesign.quests.find((quest) => quest.parentId === parent.id);
-    assert.ok(child && child.status === 'pending');
-    assert.equal(child.rootId, parent.rootId);
-    assert.equal(child.redesignReason, 'unclear');
-    assert.equal(child.level, parent.level - 1);
-    assert.ok(child.minutes < parent.minutes);
-    assert.match(await page.locator(`#action-${child.id}`).textContent(), /원래 퀘스트 → 새 행동/);
-    assert.match(await page.locator(`#action-${child.id}`).textContent(), /무엇을 할지 명확하지 않았어요/);
-    await page.locator(`#action-${child.id} .card-actions .secondary-button`).click();
-    await waitSummary(page, 'Completed', afterRedesign.summary.completed + 1);
-    assert.match(await page.locator(`#history-${child.id}`).textContent(), /완료한 시간/);
+      await page.reload({ waitUntil: 'networkidle' });
+      await waitSummary(page, 'Total', current.summary.total);
+      await assertRenderedSuggestion(page, suggestion);
+      assert.deepEqual((await dashboard(base)).suggestions.find((item) => item.parentId === parent.id), suggestion);
+      await page.locator(`#suggestion-${parent.id} button`).click();
+      await waitSummary(page, 'Redesigned', current.summary.redesigned + 1);
+      const afterRedesign = await dashboard(base);
+      const child = afterRedesign.quests.find((quest) => quest.parentId === parent.id);
+      assert.ok(child && child.status === 'pending');
+      assertConfirmedAction(child, parent, suggestion);
+      await assertRenderedQuest(page, `#action-${child.id}`, child);
+      assert.match(await page.locator(`#action-${child.id}`).textContent(), /원래 퀘스트 → 새 행동/);
+      assert.match(
+        await page.locator(`#action-${child.id}`).textContent(),
+        reasonCode === 'unclear' ? /무엇을 할지 명확하지 않았어요/ : /시간이 부족했어요/
+      );
+      await screenshot(page, `${name}-${reasonCode}-action`);
+      examples.push({ parent, child, suggestion, note, completed: reasonCode === 'unclear' });
+
+      if (reasonCode === 'unclear') {
+        await page.locator(`#action-${child.id} .card-actions .secondary-button`).click();
+        await waitSummary(page, 'Completed', afterRedesign.summary.completed + 1);
+        assert.match(await page.locator(`#history-${child.id}`).textContent(), /완료한 시간/);
+      }
+    }
+    assert.equal(titles.size, 2, `${name}: 같은 단계의 이유별 제목`);
+    assert.equal(instructions.size, 2, `${name}: 같은 단계의 이유별 지시문`);
 
     const persisted = await dashboard(base);
     await page.reload({ waitUntil: 'networkidle' });
@@ -316,10 +450,19 @@ async function browserFlow(base, width, name) {
     assert.equal(await page.locator('#summaryCompleted').textContent(), String(persisted.summary.completed));
     assert.equal(await page.locator('#summaryFailed').textContent(), String(persisted.summary.failed));
     assert.equal(await page.locator('#summaryRedesigned').textContent(), String(persisted.summary.redesigned));
-    for (const id of [doneQuest.id, parent.id, child.id]) assert.equal(await page.locator(`#history-${id}`).count(), 1);
-    assert.match(await page.locator(`#history-${parent.id}`).textContent(), /다음 행동이 모호했어요/);
-    assert.match(await page.locator(`#history-${child.id}`).textContent(), /원래 퀘스트 → 새 행동/);
-    assert.equal(await page.locator(`#action-${child.id}`).count(), 0);
+    assert.equal(await page.locator(`#history-${doneQuest.id}`).count(), 1);
+    for (const { parent, child, note, completed } of examples) {
+      assert.equal(await page.locator(`#history-${parent.id}`).count(), 1);
+      await assertRenderedQuest(page, `#history-${child.id}`, child);
+      assert.match(await page.locator(`#history-${parent.id}`).textContent(), new RegExp(note));
+      assert.match(await page.locator(`#history-${child.id}`).textContent(), /원래 퀘스트 → 새 행동/);
+      if (completed) {
+        assert.equal(await page.locator(`#action-${child.id}`).count(), 0);
+        assert.match(await page.locator(`#history-${child.id}`).textContent(), /완료한 시간/);
+      } else {
+        await assertRenderedQuest(page, `#action-${child.id}`, child);
+      }
+    }
     if (width === 375) await assertNoOverflow(page);
     await screenshot(page, `${name}-completed`);
 
@@ -337,8 +480,47 @@ async function browserFlow(base, width, name) {
     assert.deepEqual(await dashboard(base), beforeError);
     await screenshot(page, `${name}-api-error`);
     assert.deepEqual(pageErrors, []);
+    return { width, name, examples, doneQuestId: doneQuest.id };
   } catch (error) {
     try { await screenshot(page, `${name}-failure`); } catch { /* 페이지가 이미 닫혔을 수 있음 */ }
+    throw error;
+  } finally {
+    activePage = undefined;
+    await context.close();
+  }
+}
+
+async function browserRestartFlow(base, { width, name, examples, doneQuestId }) {
+  const context = await browser.newContext({ viewport: { width, height: 850 }, deviceScaleFactor: 1 });
+  const page = await context.newPage();
+  activePage = page;
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  try {
+    await page.goto(base, { waitUntil: 'networkidle' });
+    const current = await dashboard(base);
+    await waitSummary(page, 'Total', current.summary.total);
+    assert.equal(await page.locator(`#history-${doneQuestId}`).count(), 1);
+    for (const { parent, child, suggestion, note, completed } of examples) {
+      const storedParent = current.quests.find((quest) => quest.id === parent.id);
+      const storedChild = current.quests.find((quest) => quest.id === child.id);
+      assert.ok(storedParent && storedChild);
+      assert.equal(storedParent.failureReason.code, suggestion.reasonCode);
+      assert.equal(storedParent.failureReason.note, note);
+      assertConfirmedAction(storedChild, storedParent, suggestion);
+      assert.equal(storedChild.status, completed ? 'completed' : 'pending');
+      await assertRenderedQuest(page, `#history-${child.id}`, storedChild);
+      if (completed) {
+        assert.equal(await page.locator(`#action-${child.id}`).count(), 0);
+      } else {
+        await assertRenderedQuest(page, `#action-${child.id}`, storedChild);
+      }
+    }
+    if (width === 375) await assertNoOverflow(page);
+    await screenshot(page, `${name}-restarted`);
+    assert.deepEqual(pageErrors, []);
+  } catch (error) {
+    try { await screenshot(page, `${name}-restart-failure`); } catch { /* 페이지가 이미 닫혔을 수 있음 */ }
     throw error;
   } finally {
     activePage = undefined;
@@ -366,7 +548,8 @@ async function main() {
       return module;
     });
     let base = await stage('서버 시작', () => startServer(dataFile));
-    const beforeRestart = await stage('실제 HTTP와 저장 파일', () => httpFlow(base, dataFile));
+    await stage('실제 HTTP와 저장 파일', () => httpFlow(base, dataFile));
+    const beforeRestart = await stage('같은 단계의 실패 이유별 HTTP 행동', () => reasonMatrixFlow(base, dataFile));
     await writeFile(join(runDirectory, 'http-dashboard.json'), JSON.stringify(beforeRestart, null, 2) + '\n');
     dashboards.push(join(runDirectory, 'http-dashboard.json'));
     await stage('서버 재시작과 영속성', async () => {
@@ -376,8 +559,17 @@ async function main() {
       await assertStored(dataFile, beforeRestart);
     });
     browser = await stage('실제 Chromium 시작', () => playwright.chromium.launch({ headless: true }));
-    await stage('데스크톱 브라우저 핵심 흐름', () => browserFlow(base, 1280, 'desktop'));
-    await stage('375px 모바일 브라우저 핵심 흐름', () => browserFlow(base, 375, 'mobile'));
+    const desktop = await stage('데스크톱 브라우저 핵심 흐름', () => browserFlow(base, 1280, 'desktop'));
+    const mobile = await stage('375px 모바일 브라우저 핵심 흐름', () => browserFlow(base, 375, 'mobile'));
+    await stage('브라우저 기록의 서버 재시작과 영속성', async () => {
+      const beforeBrowserRestart = await dashboard(base);
+      await stopServer();
+      base = await startServer(dataFile);
+      assert.deepEqual(await dashboard(base), beforeBrowserRestart);
+      await assertStored(dataFile, beforeBrowserRestart);
+      await browserRestartFlow(base, desktop);
+      await browserRestartFlow(base, mobile);
+    });
     await stage('최종 저장 파일', async () => {
       const finalDashboard = await dashboard(base);
       await assertStored(dataFile, finalDashboard);
