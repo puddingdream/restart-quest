@@ -17,23 +17,52 @@ test('시간과 상태의 경계에서 실행 가능한 첫 단계를 고른다'
 });
 
 test('실패 이유별 제안은 후손으로 확정될 때 한 단계와 시간을 줄인다', () => {
-  for (const reasonCode of Object.keys(RATIONALES)) {
-    const original = createQuest({ availableMinutes: 20, currentState: 'ready' });
-    original.status = 'failed';
-    original.failedAt = new Date().toISOString();
-    original.failureReason = { code: reasonCode, note: '' };
-    const suggestion = suggestRedesign(original);
-    assert.deepEqual(Object.keys(suggestion), ['parentId', 'level', 'minutes', 'title', 'instruction', 'reasonCode', 'rationale']);
-    assert.equal(suggestion.reasonCode, reasonCode);
-    assert.equal(suggestion.rationale, RATIONALES[reasonCode]);
-    const child = createRedesign(original);
-    assert.equal(child.rootId, original.id);
-    assert.equal(child.parentId, original.id);
-    assert.equal(child.redesignReason, reasonCode);
-    assert.equal(child.level, original.level - 1);
-    assert.ok(child.minutes < original.minutes);
-    assert.equal(child.status, 'pending');
-    assert.equal(child.failureReason, null);
+  for (const input of [
+    { availableMinutes: 20, currentState: 'ready' },
+    { availableMinutes: 10, currentState: 'ready' },
+    { availableMinutes: 5, currentState: 'overwhelmed' }
+  ]) {
+    const titles = new Set();
+    const instructions = new Set();
+    for (const reasonCode of Object.keys(RATIONALES)) {
+      const original = createQuest(input);
+      original.status = 'failed';
+      original.failedAt = new Date().toISOString();
+      original.failureReason = { code: reasonCode, note: '' };
+      const suggestion = suggestRedesign(original);
+      assert.deepEqual(Object.keys(suggestion), ['parentId', 'level', 'minutes', 'title', 'instruction', 'reasonCode', 'rationale']);
+      assert.equal(suggestion.reasonCode, reasonCode);
+      assert.equal(suggestion.rationale, RATIONALES[reasonCode]);
+      assert.equal(suggestion.level, original.level - 1);
+      assert.ok(suggestion.minutes < original.minutes);
+      titles.add(suggestion.title);
+      instructions.add(suggestion.instruction);
+      const intent = {
+        time: [/직무/, /직무명/],
+        energy: [/예시/, /기획/],
+        too_hard: [/동사/, /쓰기/],
+        unclear: [/칸/, /빈칸/],
+        other: [/키워드/, /키워드/]
+      }[reasonCode];
+      assert.match(suggestion.title, intent[0]);
+      assert.match(suggestion.instruction, intent[1]);
+      const child = createRedesign(original);
+      assert.equal(child.rootId, original.id);
+      assert.equal(child.parentId, original.id);
+      assert.equal(child.redesignReason, reasonCode);
+      assert.deepEqual(
+        [child.level, child.minutes, child.title, child.instruction],
+        [suggestion.level, suggestion.minutes, suggestion.title, suggestion.instruction]
+      );
+      assert.equal(child.status, 'pending');
+      assert.equal(child.failureReason, null);
+      if (reasonCode === 'other') {
+        assert.equal(suggestion.title, STEPS[suggestion.level].title);
+        assert.equal(suggestion.instruction, STEPS[suggestion.level].instruction);
+      }
+    }
+    assert.equal(titles.size, 5, `level ${initialLevel(input.availableMinutes, input.currentState)}`);
+    assert.equal(instructions.size, 5, `level ${initialLevel(input.availableMinutes, input.currentState)}`);
   }
   const minimum = { ...createQuest({ availableMinutes: 5, currentState: 'overwhelmed' }), level: 0, status: 'failed', failureReason: { code: 'time', note: '' } };
   assert.equal(suggestRedesign(minimum), null);

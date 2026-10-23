@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { open, mkdir, readFile, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { REASONS, STATES, STEPS, initialLevel } from './quests.mjs';
+import { REASONS, STATES, STEPS, initialLevel, suggestRedesign } from './quests.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const QUEST_KEYS = [
@@ -35,7 +35,7 @@ function validQuest(quest) {
   if (!Number.isInteger(quest.availableMinutes) || quest.availableMinutes < 5 || quest.availableMinutes > 120 ||
       !STATES.includes(quest.currentState) || !Number.isInteger(quest.level) || quest.level < 0 || quest.level > 3) return false;
   const step = STEPS[quest.level];
-  if (quest.minutes !== step.minutes || quest.title !== step.title || quest.instruction !== step.instruction) return false;
+  if (quest.minutes !== step.minutes || typeof quest.title !== 'string' || typeof quest.instruction !== 'string') return false;
   if (quest.status === 'pending') {
     if (quest.completedAt !== null || quest.failedAt !== null || quest.failureReason !== null) return false;
   } else if (quest.status === 'completed') {
@@ -66,16 +66,21 @@ function validateDocument(document) {
   for (const quest of document.quests) {
     if (quest.parentId === null) {
       if (quest.rootId !== quest.id || quest.redesignReason !== null ||
-          quest.level !== initialLevel(quest.availableMinutes, quest.currentState)) {
+          quest.level !== initialLevel(quest.availableMinutes, quest.currentState) ||
+          quest.title !== STEPS[quest.level].title || quest.instruction !== STEPS[quest.level].instruction) {
         throw new StorageError('저장된 퀘스트 관계가 올바르지 않습니다.');
       }
       continue;
     }
     const parent = byId.get(quest.parentId);
+    const proposed = parent?.status === 'failed' && parent.level > 0 ? suggestRedesign(parent) : null;
+    const legacy = STEPS[quest.level];
     if (!parent || parent.status !== 'failed' || parent.level === 0 ||
         quest.rootId !== parent.rootId || quest.level !== parent.level - 1 ||
         quest.availableMinutes !== parent.availableMinutes || quest.currentState !== parent.currentState ||
-        quest.redesignReason !== parent.failureReason.code || quest.id === parent.id) {
+        quest.redesignReason !== parent.failureReason.code || quest.id === parent.id ||
+        !((quest.title === proposed.title && quest.instruction === proposed.instruction) ||
+          (quest.title === legacy.title && quest.instruction === legacy.instruction))) {
       throw new StorageError('저장된 퀘스트 관계가 올바르지 않습니다.');
     }
     childCounts.set(parent.id, (childCounts.get(parent.id) ?? 0) + 1);

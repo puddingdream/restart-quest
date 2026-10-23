@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer } from '../server/main.mjs';
+import { STEPS } from '../server/quests.mjs';
 
 async function closeServer(server) {
   server.closeAllConnections();
@@ -95,6 +96,126 @@ test('HTTP 핵심 흐름은 디스크 저장 후 응답하고 서버 재시작 �
   const second = await boot();
   const afterRestart = await request(second.base, '/api/dashboard', undefined, 'GET');
   assert.deepEqual(afterRestart.body, dashboard.body);
+});
+
+test('같은 단계의 실패 이유별 제안 행동이 서로 다르고 확정·저장·재시작 뒤 일치한다', async (t) => {
+  const { dataFile, boot } = await fixture(t);
+  const first = await boot();
+  const reasons = ['time', 'energy', 'too_hard', 'unclear', 'other'];
+  const inputs = [
+    { availableMinutes: 20, currentState: 'ready' },
+    { availableMinutes: 10, currentState: 'ready' },
+    { availableMinutes: 5, currentState: 'overwhelmed' }
+  ];
+  const expectedChildren = new Map();
+  for (const input of inputs) {
+    const titles = new Set();
+    const instructions = new Set();
+    for (const reasonCode of reasons) {
+      const created = await request(first.base, '/api/quests', input);
+      assert.equal(created.status, 201);
+      const parent = created.body.quest;
+      const failed = await request(first.base, `/api/quests/${parent.id}/fail`, { reasonCode });
+      assert.equal(failed.status, 200);
+      const suggestion = failed.body.suggestion;
+      assert.equal(suggestion.reasonCode, reasonCode);
+      assert.equal(suggestion.parentId, parent.id);
+      assert.equal(suggestion.level, parent.level - 1);
+      assert.ok(suggestion.minutes < parent.minutes);
+      titles.add(suggestion.title);
+      instructions.add(suggestion.instruction);
+      const dashboardBefore = await request(first.base, '/api/dashboard', undefined, 'GET');
+      assert.equal(dashboardBefore.status, 200);
+      assert.deepEqual(dashboardBefore.body.suggestions.find((entry) => entry.parentId === parent.id), suggestion);
+      const confirmed = await request(first.base, `/api/quests/${parent.id}/redesign`);
+      assert.equal(confirmed.status, 201);
+      const child = confirmed.body.quest;
+      assert.deepEqual(
+        [child.level, child.minutes, child.title, child.instruction],
+        [suggestion.level, suggestion.minutes, suggestion.title, suggestion.instruction]
+      );
+      assert.equal(child.parentId, parent.id);
+      assert.equal(child.rootId, parent.rootId);
+      assert.equal(child.redesignReason, reasonCode);
+      expectedChildren.set(child.id, child);
+    }
+    assert.equal(titles.size, reasons.length);
+    assert.equal(instructions.size, reasons.length);
+  }
+  const persisted = JSON.parse(await readFile(dataFile, 'utf8'));
+  assert.equal(persisted.schemaVersion, 1);
+  for (const [id, child] of expectedChildren) {
+    assert.deepEqual(persisted.quests.find((quest) => quest.id === id), child);
+  }
+  await closeServer(first.server);
+  const second = await boot();
+  const afterRestart = await request(second.base, '/api/dashboard', undefined, 'GET');
+  assert.equal(afterRestart.status, 200);
+  assert.deepEqual(afterRestart.body.summary, { total: 30, pending: 15, completed: 0, failed: 15, redesigned: 15 });
+  assert.deepEqual(afterRestart.body.suggestions, []);
+  for (const [id, child] of expectedChildren) {
+    assert.deepEqual(afterRestart.body.quests.find((quest) => quest.id === id), child);
+    assert.deepEqual(afterRestart.body.nextActions.find((quest) => quest.id === id), child);
+  }
+});
+
+test('기존 고정 단계 후손을 다시 읽고 보존하며 그 후손에서 새 이유별 행동으로 이어진다', async (t) => {
+  const { directory, dataFile, boot } = await fixture(t);
+  const first = await boot();
+  const created = await request(first.base, '/api/quests', { availableMinutes: 20, currentState: 'ready' });
+  assert.equal(created.status, 201);
+  const parent = created.body.quest;
+  const failed = await request(first.base, `/api/quests/${parent.id}/fail`, { reasonCode: 'energy' });
+  assert.equal(failed.status, 200);
+  const confirmed = await request(first.base, `/api/quests/${parent.id}/redesign`);
+  assert.equal(confirmed.status, 201);
+  const child = confirmed.body.quest;
+  assert.notEqual(child.title, STEPS[child.level].title);
+  await closeServer(first.server);
+
+  const legacyDocument = JSON.parse(await readFile(dataFile, 'utf8'));
+  const legacyChild = legacyDocument.quests.find((quest) => quest.id === child.id);
+  legacyChild.title = STEPS[child.level].title;
+  legacyChild.instruction = STEPS[child.level].instruction;
+  await writeFile(dataFile, JSON.stringify(legacyDocument));
+  const second = await boot();
+  const oldDashboard = await request(second.base, '/api/dashboard', undefined, 'GET');
+  assert.equal(oldDashboard.status, 200);
+  assert.deepEqual(oldDashboard.body.quests.find((quest) => quest.id === child.id), legacyChild);
+
+  const failedChild = await request(second.base, `/api/quests/${child.id}/fail`, { reasonCode: 'too_hard' });
+  assert.equal(failedChild.status, 200);
+  assert.equal(failedChild.body.quest.title, STEPS[child.level].title);
+  assert.notEqual(failedChild.body.suggestion.title, STEPS[child.level - 1].title);
+  const grandchildResult = await request(second.base, `/api/quests/${child.id}/redesign`);
+  assert.equal(grandchildResult.status, 201);
+  const grandchild = grandchildResult.body.quest;
+  assert.equal(grandchild.parentId, child.id);
+  assert.equal(grandchild.rootId, parent.id);
+  assert.equal(grandchild.redesignReason, 'too_hard');
+  assert.deepEqual(
+    [grandchild.level, grandchild.minutes, grandchild.title, grandchild.instruction],
+    [failedChild.body.suggestion.level, failedChild.body.suggestion.minutes,
+      failedChild.body.suggestion.title, failedChild.body.suggestion.instruction]
+  );
+  await closeServer(second.server);
+  const third = await boot();
+  const restored = await request(third.base, '/api/dashboard', undefined, 'GET');
+  assert.equal(restored.status, 200);
+  const restoredParent = restored.body.quests.find((quest) => quest.id === parent.id);
+  const restoredChild = restored.body.quests.find((quest) => quest.id === child.id);
+  assert.equal(restoredParent.failureReason.code, 'energy');
+  assert.equal(restoredChild.parentId, parent.id);
+  assert.equal(restoredChild.rootId, parent.id);
+  assert.equal(restoredChild.title, legacyChild.title);
+  assert.equal(restoredChild.instruction, legacyChild.instruction);
+  assert.deepEqual(restored.body.quests.find((quest) => quest.id === grandchild.id), grandchild);
+
+  const mixedAction = JSON.parse(await readFile(dataFile, 'utf8'));
+  mixedAction.quests.find((quest) => quest.id === child.id).title = '직무 키워드 2개만 적기';
+  const invalidFile = join(directory, 'mixed-action.json');
+  await writeFile(invalidFile, JSON.stringify(mixedAction));
+  await assert.rejects(startServer({ port: 0, dataFile: invalidFile }));
 });
 
 test('입력 오류, 없는 ID, 종료 상태 충돌과 HTTP 메서드를 구분한다', async (t) => {

@@ -18,6 +18,32 @@ export const RATIONALES = Object.freeze({
   other: '다시 시작하기 쉽게 한 단계 줄였어요'
 });
 
+// Index by the child's level. The generic steps remain valid for quests
+// persisted before reason-specific redesigns were introduced.
+export const REDESIGN_ACTIONS = Object.freeze({
+  time: Object.freeze([
+    Object.freeze({ title: '직무명 첫 글자 적기', instruction: '떠오르는 직무명의 첫 글자 하나만 적고 멈추세요.' }),
+    Object.freeze({ title: '직무 키워드 1개만 적기', instruction: '자료 조사나 이유 없이 떠오르는 직무명 하나만 적으세요.' }),
+    Object.freeze({ title: '직무 키워드 2개만 적기', instruction: '이유를 쓰거나 자료를 찾지 말고, 떠오르는 직무명 두 개만 적으세요.' })
+  ]),
+  energy: Object.freeze([
+    Object.freeze({ title: '예시 직무 하나 표시하기', instruction: '기획·디자인 중 덜 부담스러운 것 하나만 동그라미 치거나 적으세요.' }),
+    Object.freeze({ title: '예시 직무에서 1개 고르기', instruction: '기획·디자인·개발 중 지금 덜 부담스러운 직무 하나만 골라 적으세요.' }),
+    Object.freeze({ title: '예시 직무에서 2개 고르기', instruction: '새로 찾지 말고 기획·디자인·개발 중 부담 없는 직무 두 개만 골라 적으세요.' })
+  ]),
+  too_hard: Object.freeze([
+    Object.freeze({ title: '업무 동사 첫 글자 적기', instruction: '쓰기·만들기 중 해보고 싶은 동작의 첫 글자 하나만 적으세요.' }),
+    Object.freeze({ title: '해보고 싶은 업무 동사 1개 적기', instruction: '직무명을 정하지 말고 쓰기·만들기·정리하기 중 해보고 싶은 동작 하나만 적으세요.' }),
+    Object.freeze({ title: '해보고 싶은 업무 동사 2개 적기', instruction: '직무명을 결정하지 말고, 쓰기·만들기·정리하기처럼 해보고 싶은 동작 두 개만 적으세요.' })
+  ]),
+  unclear: Object.freeze([
+    Object.freeze({ title: '일의 첫 글자 한 칸 채우기', instruction: '‘해보고 싶은 일: ___’의 빈칸에 떠오르는 업무 동사의 첫 글자 하나만 넣으세요.' }),
+    Object.freeze({ title: '하고 싶은 일 한 칸 채우기', instruction: '‘해보고 싶은 일: ___’의 빈칸에 업무 동사 하나만 넣으세요.' }),
+    Object.freeze({ title: '하고 싶은 일 두 칸 채우기', instruction: '‘해보고 싶은 일: ___, ___’의 두 빈칸에 업무 동사 하나씩 넣으세요.' })
+  ]),
+  other: STEPS
+});
+
 export function initialLevel(availableMinutes, currentState) {
   if (currentState === 'ready' && availableMinutes >= 20) return 3;
   if ((currentState === 'ready' || currentState === 'low_energy') && availableMinutes >= 10) return 2;
@@ -44,11 +70,12 @@ export function createQuest({ availableMinutes, currentState }, now = new Date()
 
 export function suggestRedesign(quest) {
   if (quest.status !== 'failed' || quest.level === 0) return null;
-  const step = STEPS[quest.level - 1];
   const reasonCode = quest.failureReason.code;
+  const level = quest.level - 1;
   return {
     parentId: quest.id,
-    ...step,
+    ...STEPS[level],
+    ...REDESIGN_ACTIONS[reasonCode][level],
     reasonCode,
     rationale: RATIONALES[reasonCode]
   };
