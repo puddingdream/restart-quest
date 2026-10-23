@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer } from '../server/main.mjs';
@@ -30,7 +31,7 @@ async function fixture(t) {
 async function request(base, path, body, method = 'POST') {
   const response = await fetch(`${base}${path}`, {
     method,
-    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    headers: method === 'POST' ? { 'Content-Type': 'application/json' } : undefined,
     body: body === undefined ? undefined : JSON.stringify(body)
   });
   return { status: response.status, body: await response.json() };
@@ -234,10 +235,14 @@ test('입력 오류, 없는 ID, 종료 상태 충돌과 HTTP 메서드를 구분
   await errorIs(base, '/api/quests/no-such-id/complete', {}, 404, 'NOT_FOUND');
   await errorIs(base, '/api/quests/no-such-id/fail', { reasonCode: 'time' }, 404, 'NOT_FOUND');
 
-  const raw = await fetch(`${base}/api/quests`, { method: 'POST', body: '{bad' });
+  const raw = await fetch(`${base}/api/quests`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{bad'
+  });
   assert.equal(raw.status, 400);
   assert.equal((await raw.json()).error.code, 'VALIDATION_ERROR');
-  const large = await fetch(`${base}/api/quests`, { method: 'POST', body: 'x'.repeat(1024 * 1024 + 1) });
+  const large = await fetch(`${base}/api/quests`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: 'x'.repeat(1024 * 1024 + 1)
+  });
   assert.equal(large.status, 413);
   assert.equal((await large.json()).error.code, 'PAYLOAD_TOO_LARGE');
 
@@ -257,6 +262,78 @@ test('입력 오류, 없는 ID, 종료 상태 충돌과 HTTP 메서드를 구분
   assert.equal((await request(base, `/api/quests/${otherId}/fail`, { reasonCode: 'energy' })).status, 200);
   await errorIs(base, `/api/quests/${otherId}/fail`, { reasonCode: 'energy' }, 409, 'INVALID_STATE');
   await errorIs(base, `/api/quests/${otherId}/complete`, {}, 409, 'INVALID_STATE');
+});
+
+test('변경 API는 JSON 미디어 타입과 실제 수신 출처를 검사하고 거부 시 이력을 보존한다', async (t) => {
+  const { dataFile, boot } = await fixture(t);
+  const { base } = await boot();
+  const pending = await request(base, '/api/quests', { availableMinutes: 10, currentState: 'ready' });
+  const failedParent = await request(base, '/api/quests', { availableMinutes: 20, currentState: 'ready' });
+  assert.equal((await request(base, `/api/quests/${failedParent.body.quest.id}/fail`, { reasonCode: 'time' })).status, 200);
+  const originalFile = await readFile(dataFile, 'utf8');
+  const originalDashboard = await request(base, '/api/dashboard', undefined, 'GET');
+  const mutations = [
+    ['/api/quests', { availableMinutes: 5, currentState: 'ready' }],
+    [`/api/quests/${pending.body.quest.id}/complete`, undefined],
+    [`/api/quests/${pending.body.quest.id}/fail`, { reasonCode: 'energy' }],
+    [`/api/quests/${failedParent.body.quest.id}/redesign`, undefined]
+  ];
+
+  async function rejected(path, body, headers, status, code) {
+    const response = await fetch(`${base}${path}`, {
+      method: 'POST', headers,
+      body: body === undefined ? undefined : Buffer.from(JSON.stringify(body))
+    });
+    const result = await response.json();
+    assert.equal(response.status, status);
+    assert.equal(result.error.code, code);
+    assert.ok(result.error.message.length > 0);
+    assert.equal(await readFile(dataFile, 'utf8'), originalFile);
+    assert.deepEqual(await request(base, '/api/dashboard', undefined, 'GET'), originalDashboard);
+  }
+
+  for (const [path, body] of mutations) {
+    await rejected(path, body, {}, 415, 'UNSUPPORTED_MEDIA_TYPE');
+    await rejected(path, body, { 'Content-Type': 'text/plain' }, 415, 'UNSUPPORTED_MEDIA_TYPE');
+    await rejected(path, body, { 'Content-Type': 'application/json; charset=iso-8859-1' }, 415, 'UNSUPPORTED_MEDIA_TYPE');
+    await rejected(path, body, { 'Content-Type': 'application/json', Origin: 'null' }, 403, 'FORBIDDEN_ORIGIN');
+    await rejected(path, body, { 'Content-Type': 'application/json', Origin: 'http://attacker.invalid' }, 403, 'FORBIDDEN_ORIGIN');
+  }
+
+  const spoofedHost = await new Promise((resolve, reject) => {
+    const target = new URL('/api/quests', base);
+    const attempt = httpRequest(target, {
+      method: 'POST',
+      headers: {
+        Host: 'attacker.invalid', Origin: 'http://attacker.invalid',
+        'Content-Type': 'application/json'
+      }
+    }, async (response) => {
+      try {
+        const chunks = [];
+        for await (const chunk of response) chunks.push(chunk);
+        resolve({ status: response.statusCode, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
+      } catch (error) { reject(error); }
+    });
+    attempt.on('error', reject);
+    attempt.end(JSON.stringify({ availableMinutes: 5, currentState: 'ready' }));
+  });
+  assert.equal(spoofedHost.status, 403);
+  assert.equal(spoofedHost.body.error.code, 'FORBIDDEN_ORIGIN');
+  assert.equal(await readFile(dataFile, 'utf8'), originalFile);
+
+  const sameOrigin = await fetch(`${base}/api/quests`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=UTF-8', Origin: base },
+    body: JSON.stringify({ availableMinutes: 5, currentState: 'ready' })
+  });
+  assert.equal(sameOrigin.status, 201);
+  const sameOriginId = (await sameOrigin.json()).quest.id;
+  const completed = await fetch(`${base}/api/quests/${sameOriginId}/complete`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }
+  });
+  assert.equal(completed.status, 200);
+  assert.equal((await completed.json()).quest.status, 'completed');
 });
 
 test('중복 재설계는 한 번만 저장하고 최소 단계에서 제안을 멈춘다', async (t) => {

@@ -4,6 +4,7 @@ import { buildDashboard, createQuest, createRedesign, REASONS, STATES, suggestRe
 import { StorageError } from './store.mjs';
 
 const MAX_BODY_BYTES = 1024 * 1024;
+const JSON_CONTENT_TYPE = /^application\/json(?:\s*;\s*charset\s*=\s*(?:utf-8|"utf-8"))?\s*$/i;
 const STATIC_FILES = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/index.html', ['index.html', 'text/html; charset=utf-8']],
@@ -98,6 +99,18 @@ function methodAllowed(method, allowed) {
   if (method !== allowed) throw new ApiError(405, 'METHOD_NOT_ALLOWED', '허용되지 않는 요청 방식입니다.');
 }
 
+function validateWriteHeaders(request) {
+  const address = request.socket.localAddress;
+  const host = address.includes(':') ? `[${address}]` : address;
+  const expectedOrigin = new URL(`http://${host}:${request.socket.localPort}`).origin;
+  if (request.headers.origin !== undefined && request.headers.origin !== expectedOrigin) {
+    throw new ApiError(403, 'FORBIDDEN_ORIGIN', '허용되지 않는 출처의 요청입니다.');
+  }
+  if (!JSON_CONTENT_TYPE.test(request.headers['content-type'] ?? '')) {
+    throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'JSON 형식의 요청만 허용합니다.');
+  }
+}
+
 async function handleApi(request, response, pathname, store) {
   if (pathname === '/api/health') {
     methodAllowed(request.method, 'GET');
@@ -110,6 +123,7 @@ async function handleApi(request, response, pathname, store) {
   }
   if (pathname === '/api/quests') {
     methodAllowed(request.method, 'POST');
+    validateWriteHeaders(request);
     const input = validateCreate(await readJson(request));
     const quest = await store.transact((quests) => {
       const created = createQuest(input);
@@ -122,6 +136,7 @@ async function handleApi(request, response, pathname, store) {
   const match = /^\/api\/quests\/([^/]+)\/(complete|fail|redesign)$/.exec(pathname);
   if (!match) throw new ApiError(404, 'NOT_FOUND', '요청한 API를 찾을 수 없습니다.');
   methodAllowed(request.method, 'POST');
+  validateWriteHeaders(request);
   const [, id, action] = match;
   if (action === 'complete') {
     validateEmpty(await readJson(request, true));
