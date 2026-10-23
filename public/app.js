@@ -185,9 +185,8 @@ function failureForm(quest, toggle) {
   const note = element("textarea");
   note.id = noteLabel.htmlFor;
   note.name = "reasonNote";
-  note.maxLength = 200;
   note.placeholder = "예: 예상보다 오래 걸렸어요";
-  noteField.append(noteLabel, note, element("p", "field-hint", "최대 200자까지 적을 수 있어요."));
+  noteField.append(noteLabel, note, element("p", "field-hint", "앞뒤 공백을 제외하고 최대 200자까지 적을 수 있어요."));
 
   const actions = element("div", "form-actions");
   const submit = element("button", "secondary-button", "실패 이유 저장하기");
@@ -208,9 +207,15 @@ function failureForm(quest, toggle) {
       reason.focus();
       return;
     }
+    const reasonNote = note.value.trim();
+    if ([...reasonNote].length > 200) {
+      showError("실패 이유 메모는 앞뒤 공백을 제외하고 200자 이하로 적어 주세요.");
+      note.focus();
+      return;
+    }
     mutate(`/api/quests/${encodeURIComponent(quest.id)}/fail`, {
       reasonCode,
-      reasonNote: note.value.trim(),
+      reasonNote,
     }, (result) => `suggestion-${result.quest.id}`, `history-${quest.id}`);
   });
   return failure;
