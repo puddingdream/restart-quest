@@ -175,6 +175,17 @@ async function api(base, path, body, method = 'POST') {
   return { status: response.status, body: await response.json() };
 }
 
+async function rawApi(base, path, headers, body) {
+  const response = await fetch(`${base}${path}`, {
+    method: 'POST',
+    headers,
+    body,
+    signal: AbortSignal.timeout(5000)
+  });
+  assert.match(response.headers.get('content-type') ?? '', /^application\/json/);
+  return { status: response.status, body: await response.json() };
+}
+
 async function expectError(base, path, body, status, code, method = 'POST') {
   const result = await api(base, path, body, method);
   assert.equal(result.status, status, `${path}: HTTP 상태`);
@@ -196,6 +207,77 @@ async function assertStored(dataFile, current) {
     Object.fromEntries(stored.quests.map((quest) => [quest.id, quest])),
     Object.fromEntries(current.quests.map((quest) => [quest.id, quest]))
   );
+}
+
+async function assertDefaultStorageIgnored() {
+  assert.equal(await run('git', ['ls-files', '--cached', '--', 'data/']), '', '기본 저장 디렉터리에 추적 파일이 없어야 합니다.');
+  for (const path of [
+    'data/restart-quest.json',
+    'data/.restart-quest.json.00000000-0000-4000-8000-000000000000.tmp'
+  ]) {
+    await run('git', ['check-ignore', '--no-index', '--quiet', '--', path], 10000);
+  }
+}
+
+async function expectRejectedWrite(base, dataFile, path, headers, body, status, code) {
+  const before = await dashboard(base);
+  const stored = await readFile(dataFile, 'utf8');
+  const result = await rawApi(base, path, headers, body);
+  assert.equal(result.status, status, `${path}: HTTP 상태`);
+  assert.equal(result.body.error?.code, code, `${path}: 오류 코드`);
+  assert.ok(typeof result.body.error?.message === 'string' && result.body.error.message.length > 0);
+  assert.deepEqual(await dashboard(base), before, `${path}: 거부된 요청이 대시보드를 바꿨습니다.`);
+  assert.equal(await readFile(dataFile, 'utf8'), stored, `${path}: 거부된 요청이 저장 파일을 바꿨습니다.`);
+}
+
+async function writeGuardFlow(base, dataFile) {
+  const input = { availableMinutes: 10, currentState: 'ready' };
+  const created = await rawApi(base, '/api/quests', { 'Content-Type': 'application/json' }, JSON.stringify(input));
+  assert.equal(created.status, 201, 'Origin 없는 JSON 생성');
+  const pendingId = created.body.quest.id;
+  const routes = [
+    ['/api/quests', input],
+    [`/api/quests/${pendingId}/complete`, {}],
+    [`/api/quests/${pendingId}/fail`, { reasonCode: 'time' }],
+    [`/api/quests/${pendingId}/redesign`, {}]
+  ];
+  for (const [path, body] of routes) {
+    const json = JSON.stringify(body);
+    await expectRejectedWrite(base, dataFile, path, {}, Buffer.from(json), 415, 'UNSUPPORTED_MEDIA_TYPE');
+    if (path.endsWith('/complete') || path.endsWith('/redesign')) {
+      await expectRejectedWrite(base, dataFile, path, {}, undefined, 415, 'UNSUPPORTED_MEDIA_TYPE');
+    }
+    await expectRejectedWrite(base, dataFile, path, { 'Content-Type': 'text/plain' }, json, 415, 'UNSUPPORTED_MEDIA_TYPE');
+    await expectRejectedWrite(base, dataFile, path, { 'Content-Type': 'application/json; charset=iso-8859-1' }, json, 415, 'UNSUPPORTED_MEDIA_TYPE');
+    for (const origin of ['null', 'https://example.invalid']) {
+      await expectRejectedWrite(base, dataFile, path, { 'Content-Type': 'application/json', Origin: origin }, json, 403, 'FORBIDDEN_ORIGIN');
+    }
+  }
+  await expectRejectedWrite(base, dataFile, '/api/quests', {
+    'Content-Type': 'application/json', Host: 'spoof.invalid', Origin: 'http://spoof.invalid'
+  }, JSON.stringify(input), 403, 'FORBIDDEN_ORIGIN');
+
+  const completed = await rawApi(base, `/api/quests/${pendingId}/complete`, { 'Content-Type': 'application/json' }, undefined);
+  assert.equal(completed.status, 200, 'Origin 없는 빈 JSON 완료');
+  assert.equal(completed.body.quest.status, 'completed');
+  const parent = await rawApi(base, '/api/quests', {
+    'Content-Type': 'application/json; charset=utf-8', Origin: base
+  }, JSON.stringify(input));
+  assert.equal(parent.status, 201, '수신 소켓과 같은 Origin의 JSON 생성');
+  const failPath = `/api/quests/${parent.body.quest.id}/fail`;
+  const emoji = '😀'.repeat(200);
+  await expectRejectedWrite(base, dataFile, failPath, { 'Content-Type': 'application/json', Origin: base },
+    JSON.stringify({ reasonCode: 'time', reasonNote: ` ${emoji}😀 ` }), 400, 'VALIDATION_ERROR');
+  const failed = await rawApi(base, failPath, { 'Content-Type': 'application/json', Origin: base },
+    JSON.stringify({ reasonCode: 'time', reasonNote: ` ${emoji} ` }));
+  assert.equal(failed.status, 200);
+  assert.equal(failed.body.quest.failureReason.note, emoji);
+  const redesigned = await rawApi(base, `/api/quests/${parent.body.quest.id}/redesign`, {
+    'Content-Type': 'application/json', Origin: base
+  }, undefined);
+  assert.equal(redesigned.status, 201, '같은 Origin의 빈 JSON 재설계');
+  assertConfirmedAction(redesigned.body.quest, parent.body.quest, failed.body.suggestion);
+  await assertStored(dataFile, await dashboard(base));
 }
 
 async function httpFlow(base, dataFile) {
@@ -352,7 +434,7 @@ async function assertRenderedQuest(page, selector, quest) {
   assert.equal(await card.locator('.quest-instruction').textContent(), quest.instruction);
 }
 
-async function browserFlow(base, width, name) {
+async function browserFlow(base, dataFile, width, name) {
   const context = await browser.newContext({ viewport: { width, height: 850 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
   activePage = page;
@@ -444,6 +526,46 @@ async function browserFlow(base, width, name) {
     assert.equal(titles.size, 2, `${name}: 같은 단계의 이유별 제목`);
     assert.equal(instructions.size, 2, `${name}: 같은 단계의 이유별 지시문`);
 
+    current = await dashboard(base);
+    known = new Set(current.quests.map((quest) => quest.id));
+    await page.locator('#availableMinutes').fill('10');
+    await page.locator('#currentState').selectOption('ready');
+    await page.locator('#createQuestForm button[type="submit"]').click();
+    await waitSummary(page, 'Total', current.summary.total + 1);
+    const beforeEmojiFailure = await dashboard(base);
+    const emojiParent = beforeEmojiFailure.quests.find((quest) => !known.has(quest.id));
+    assert.ok(emojiParent && emojiParent.status === 'pending');
+    const emojiNote = '😀'.repeat(200);
+    const emojiFailPath = `/api/quests/${emojiParent.id}/fail`;
+    const failRequests = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === emojiFailPath) failRequests.push(request);
+    });
+    await page.locator(`#action-${emojiParent.id} .card-actions .outline-button`).click();
+    await page.locator(`#reason-${emojiParent.id}`).selectOption('energy');
+    await page.locator(`#note-${emojiParent.id}`).fill(` ${emojiNote}😀 `);
+    const storedBeforeInvalid = await readFile(dataFile, 'utf8');
+    await page.locator(`#failure-${emojiParent.id} button[type="submit"]`).click();
+    await page.locator('#errorBanner:not([hidden])').waitFor();
+    assert.match(await page.locator('#errorMessage').textContent(), /200자 이하/);
+    assert.equal(failRequests.length, 0, `${name}: 201개 이모지 메모는 전송하지 않아야 합니다.`);
+    assert.deepEqual(await dashboard(base), beforeEmojiFailure);
+    assert.equal(await readFile(dataFile, 'utf8'), storedBeforeInvalid);
+    assert.equal(await page.locator(`#action-${emojiParent.id}`).count(), 1);
+    if (width === 375) await assertNoOverflow(page);
+    await screenshot(page, `${name}-emoji-limit`);
+
+    await page.locator(`#note-${emojiParent.id}`).fill(` ${emojiNote} `);
+    await page.locator(`#failure-${emojiParent.id} button[type="submit"]`).click();
+    await waitSummary(page, 'Failed', beforeEmojiFailure.summary.failed + 1);
+    assert.equal(failRequests.length, 1, `${name}: 200개 이모지 메모는 한 번 전송해야 합니다.`);
+    const afterEmojiFailure = await dashboard(base);
+    assert.equal(afterEmojiFailure.quests.find((quest) => quest.id === emojiParent.id)?.failureReason.note, emojiNote);
+    assert.ok((await page.locator(`#history-${emojiParent.id}`).textContent()).includes(emojiNote));
+    await assertStored(dataFile, afterEmojiFailure);
+    if (width === 375) await assertNoOverflow(page);
+    await screenshot(page, `${name}-emoji-accepted`);
+
     const persisted = await dashboard(base);
     await page.reload({ waitUntil: 'networkidle' });
     await waitSummary(page, 'Total', persisted.summary.total);
@@ -463,6 +585,8 @@ async function browserFlow(base, width, name) {
         await assertRenderedQuest(page, `#action-${child.id}`, child);
       }
     }
+    assert.equal(persisted.quests.find((quest) => quest.id === emojiParent.id)?.failureReason.note, emojiNote);
+    assert.ok((await page.locator(`#history-${emojiParent.id}`).textContent()).includes(emojiNote));
     if (width === 375) await assertNoOverflow(page);
     await screenshot(page, `${name}-completed`);
 
@@ -480,7 +604,7 @@ async function browserFlow(base, width, name) {
     assert.deepEqual(await dashboard(base), beforeError);
     await screenshot(page, `${name}-api-error`);
     assert.deepEqual(pageErrors, []);
-    return { width, name, examples, doneQuestId: doneQuest.id };
+    return { width, name, examples, doneQuestId: doneQuest.id, emojiParentId: emojiParent.id, emojiNote };
   } catch (error) {
     try { await screenshot(page, `${name}-failure`); } catch { /* 페이지가 이미 닫혔을 수 있음 */ }
     throw error;
@@ -490,7 +614,7 @@ async function browserFlow(base, width, name) {
   }
 }
 
-async function browserRestartFlow(base, { width, name, examples, doneQuestId }) {
+async function browserRestartFlow(base, { width, name, examples, doneQuestId, emojiParentId, emojiNote }) {
   const context = await browser.newContext({ viewport: { width, height: 850 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
   activePage = page;
@@ -516,6 +640,8 @@ async function browserRestartFlow(base, { width, name, examples, doneQuestId }) 
         await assertRenderedQuest(page, `#action-${child.id}`, storedChild);
       }
     }
+    assert.equal(current.quests.find((quest) => quest.id === emojiParentId)?.failureReason.note, emojiNote);
+    assert.ok((await page.locator(`#history-${emojiParentId}`).textContent()).includes(emojiNote));
     if (width === 375) await assertNoOverflow(page);
     await screenshot(page, `${name}-restarted`);
     assert.deepEqual(pageErrors, []);
@@ -540,6 +666,7 @@ async function main() {
     temporaryDirectory = await mkdtemp(join(tmpdir(), 'restart-quest-verify-'));
     const dataFile = join(temporaryDirectory, 'quests.json');
 
+    await stage('기본 저장 파일과 임시 파일 Git 제외', assertDefaultStorageIgnored);
     await stage('의존성 준비', () => run(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['ci', '--no-audit', '--no-fund'], 180000));
     await stage('API 회귀 테스트', () => run(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['test'], 180000));
     const playwright = await stage('Playwright 로드', async () => {
@@ -549,6 +676,7 @@ async function main() {
     });
     let base = await stage('서버 시작', () => startServer(dataFile));
     await stage('실제 HTTP와 저장 파일', () => httpFlow(base, dataFile));
+    await stage('변경 API 출처·JSON 및 이모지 길이 계약', () => writeGuardFlow(base, dataFile));
     const beforeRestart = await stage('같은 단계의 실패 이유별 HTTP 행동', () => reasonMatrixFlow(base, dataFile));
     await writeFile(join(runDirectory, 'http-dashboard.json'), JSON.stringify(beforeRestart, null, 2) + '\n');
     dashboards.push(join(runDirectory, 'http-dashboard.json'));
@@ -559,8 +687,8 @@ async function main() {
       await assertStored(dataFile, beforeRestart);
     });
     browser = await stage('실제 Chromium 시작', () => playwright.chromium.launch({ headless: true }));
-    const desktop = await stage('데스크톱 브라우저 핵심 흐름', () => browserFlow(base, 1280, 'desktop'));
-    const mobile = await stage('375px 모바일 브라우저 핵심 흐름', () => browserFlow(base, 375, 'mobile'));
+    const desktop = await stage('데스크톱 브라우저 핵심 흐름', () => browserFlow(base, dataFile, 1280, 'desktop'));
+    const mobile = await stage('375px 모바일 브라우저 핵심 흐름', () => browserFlow(base, dataFile, 375, 'mobile'));
     await stage('브라우저 기록의 서버 재시작과 영속성', async () => {
       const beforeBrowserRestart = await dashboard(base);
       await stopServer();
